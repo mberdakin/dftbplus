@@ -80,8 +80,8 @@ set(C_FLAGS_COVERAGE "-O0 -g --coverage")
 #set(ARPACK_LIBRARY_DIR "" CACHE STRING "Directories where Arpack library can be found")
 
 # ScaLAPACK -- only needed for MPI-parallel build
-#set(SCALAPACK_LIBRARY "scalapack-openmpi" CACHE STRING "Scalapack libraries to link")
-#set(SCALAPACK_LIBRARY_DIR "" CACHE STRING "Directories where Scalapack libraries can be found")
+set(SCALAPACK_LIBRARY "scalapack-openmpi" CACHE STRING "Scalapack libraries to link")
+set(SCALAPACK_LIBRARY_DIR "" CACHE STRING "Directories where Scalapack libraries can be found")
 
 # NOTE: The libraries below provide Pkg-Conf export files.  If your PKG_CONFIG_PATH environment
 # variable has been set up correctly (containing the paths to these libraries), no adjustment should

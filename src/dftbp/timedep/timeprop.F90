@@ -618,7 +618,7 @@ module dftbp_timedep_timeprop
     !> Number of dynamics steps to perform
     integer, public :: nSteps
     !> Dense matrix descriptor
-    type(TDenseDescr), intent(in) :: denseDesc
+    type(TDenseDescr) :: denseDesc
 
   end type TElecDynamics
 
