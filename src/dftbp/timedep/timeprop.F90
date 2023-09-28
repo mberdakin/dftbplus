@@ -2157,6 +2157,9 @@ contains
     integer :: iSpin, iOrb, iOrb2, iKS, iK
     type(TFileDescr) :: fillingsIn
 
+    !> New variables to store shapes to allocate with Scalapacks
+    integer :: nLocalCols, nLocalRows
+
     allocate(rhoPrim(size(ints%hamiltonian, dim=1), this%nSpin))
     allocate(ErhoPrim(size(ints%hamiltonian, dim=1)))
     this%nSparse = size(H0)
@@ -2166,12 +2169,25 @@ contains
     ! implement nLocalRows and nLocalCols in the same way as
     ! in initializeDynamics
     ! (get them from size())
+
+    !   New allocation Block :   
+    #:if WITH_SCALAPACK
+      nLocalRows = size(eigvecsReal, dim=1)
+      nLocalCols = size(eigvecsReal, dim=2)
+    #:else
+      nLocalRows = this%denseDesc%fullSize
+      nLocalCols = this%denseDesc%fullSize
+    #:endif    
+
     if (this%tRealHS) then
-      allocate(T2(this%nOrbs,this%nOrbs))
-!      allocate(T2(nLocalRows,nLocalCols))
-      allocate(T3(this%nOrbs, this%nOrbs))
+!      allocate(T2(this%nOrbs,this%nOrbs))
+!      allocate(T3(this%nOrbs, this%nOrbs))
+      allocate(T2(nLocalRows,nLocalCols))
+      allocate(T3(nLocalRows,nLocalCols))
+
     else
-      allocate(T4(this%nOrbs,this%nOrbs))
+!      allocate(T4(this%nOrbs, this%nOrbs))
+      allocate(T4(nLocalRows,nLocalCols))
     end if
 
     ! if scalapack
@@ -4022,6 +4038,9 @@ contains
     !> Error status
     type(TStatus), intent(inout) :: errStatus
 
+    !> New variables to store shapes to allocate with Scalapacks
+    integer :: nLocalCols, nLocalRows
+
     real(dp), allocatable :: velInternal(:,:)
 
     this%startTime = 0.0_dp
@@ -4063,19 +4082,28 @@ contains
 !    nLocalCols = this%denseDesc%fullSize
 !  #:endif
 
-!   uncomment this
-!    allocate(this%trho(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
-!    allocate(this%trhoOld(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
-!    allocate(this%Ssqr(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
-!    allocate(this%Sinv(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
-!    allocate(this%H1(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
 
+!   New allocation Block :   
+    #:if WITH_SCALAPACK
+      nLocalRows = size(eigvecsReal, dim=1)
+      nLocalCols = size(eigvecsReal, dim=2)
+    #:else
+      nLocalRows = this%denseDesc%fullSize
+      nLocalCols = this%denseDesc%fullSize
+    #:endif     
+
+    allocate(this%trho(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
+    allocate(this%trhoOld(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
+    allocate(this%Ssqr(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
+    allocate(this%Sinv(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
+    allocate(this%H1(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
+    
 !   delete this
-    allocate(this%trho(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-    allocate(this%trhoOld(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-    allocate(this%Ssqr(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-    allocate(this%Sinv(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-    allocate(this%H1(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
+!    allocate(this%trho(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
+!    allocate(this%trhoOld(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
+!    allocate(this%Ssqr(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
+!    allocate(this%Sinv(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
+!    allocate(this%H1(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
     
     if (this%nDipole > 0) then
       allocate(this%Dsqr(this%nDipole,this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
