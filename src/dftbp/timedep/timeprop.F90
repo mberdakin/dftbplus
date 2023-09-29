@@ -2042,7 +2042,7 @@ contains
       & eigvecsReal, filling, orb, rhoPrim, potential, iNeighbour, nNeighbourSK, iSquare,&
       & iSparseStart, img2CentCell, Eiginv, EiginvAdj, energy, ErhoPrim, skOverCont, qBlock,&
       & qNetAtom, isDftbU, onSiteElements, eigvecsCplx, H1LC, bondWork, fdBondEnergy, fdBondPopul,&
-      & lastBondPopul, time, env)
+      & lastBondPopul, time, env, errStatus)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout) :: this
@@ -2152,14 +2152,15 @@ contains
     !> Environment settings
     type(TEnvironment), intent(in) :: env
 
+    !> Error status
+    type(TStatus), intent(out) :: errStatus
+
     real(dp), allocatable :: T2(:,:), T3(:,:)
     complex(dp), allocatable :: T4(:,:)
     integer :: iSpin, iOrb, iOrb2, iKS, iK
     type(TFileDescr) :: fillingsIn
-
-    !> New variables to store shapes to allocate with Scalapacks
     integer :: nLocalCols, nLocalRows
-
+   
     allocate(rhoPrim(size(ints%hamiltonian, dim=1), this%nSpin))
     allocate(ErhoPrim(size(ints%hamiltonian, dim=1)))
     this%nSparse = size(H0)
@@ -2190,6 +2191,8 @@ contains
       allocate(T4(nLocalRows,nLocalCols))
     end if
 
+ 
+
     ! if scalapack
     !call unpackHSRealBlacs(env%blacs, ints%overlap, iNeighbour,&
     ! & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T2)
@@ -2199,6 +2202,37 @@ contains
     if (.not. this%tReadRestart) then
       Ssqr(:,:,:) = 0.0_dp
       Sinv(:,:,:) = 0.0_dp
+      ! ACA with_scalapack 
+!   #:if WITH_SCALAPACK
+      do iKS = 1, this%parallelKS%nLocalKS
+        if (this%tRealHS) then
+          call  unpackHSRealBlacs(env%blacs, ints%overlap, iNeighbour,&
+           & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T2)
+         ! Not calling blockSymmetrizeHS, unpackHSRealBlacs is symmetric
+          Ssqr(:,:,iKS) = cmplx(T2, 0, dp)
+          
+          ! See how to do inversion with Scalapack; looks that doesn't need I
+          ! psymmatinv is defined in math/scalafxext.F90
+          ! subroutine psymmatinv(desc, aa, status, uplo)
+          ! desc = Matrix descriptor ; aa= Matrix to invert on entry, inverted matrix on exit
+          ! status = Status flag
+          ! uplo = Whether upper or lower triangle is specified in the matrix ("U" or "L", default: "L")
+          ! I think we need to blockSymmetrizeHS (for blacs)
+          ! Option : blockSymmetrizeHS(rhoL, denseDesc%iAtomStart)
+          
+          ! para las multiplicaciones vamos a usar pblasfx_psymm de main.F90 de la subrutina 
+          ! getEDensityMtxFromRealEigvecs
+
+          call psymmatinv(this%denseDesc, T2, errStatus)          
+          Sinv(:,:,iKS) = cmplx(T2, 0, dp)
+        else:
+          ! call error : Not available for non real H with MPI 
+
+        end if
+      end do
+
+!      #:else
+ 
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
           call unpackHS(T2, ints%overlap, iNeighbour, nNeighbourSK, iSquare, iSparseStart,&
@@ -2228,14 +2262,22 @@ contains
       end do
       write(stdOut,"(A)")'S inverted'
 
+      !!! 
       do iKS = 1, this%parallelKS%nLocalKS
         iK = this%parallelKS%localKS(1, iKS)
         iSpin = this%parallelKS%localKS(2, iKS)
         if (this%tRealHS) then
+          !!!
+!   #:if WITH_SCALAPACK
+        call  unpackHSRealBlacs(env%blacs, ints%hamiltonian(:,iSpin), iNeighbour,&
+               & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T3)
+          H1(:,:,iKS) = cmplx(T3, 0, dp)
+!   #:else : 
           call unpackHS(T3, ints%hamiltonian(:,iSpin), iNeighbour, nNeighbourSK, iSquare,&
               & iSparseStart, img2CentCell)
           call adjointLowerTriangle(T3)
           H1(:,:,iKS) = cmplx(T3, 0, dp)
+!   #:end if
         else
           call unpackHS(H1(:,:,iKS), ints%hamiltonian(:,iSpin), this%kPoint(:,iK), iNeighbour,&
               & nNeighbourSK, this%iCellVec, this%cellVec, iSquare, iSparseStart, img2CentCell)
@@ -2246,6 +2288,7 @@ contains
       call updateDQ(this, ints, iNeighbour, nNeighbourSK, img2CentCell, iSquare,&
           & iSparseStart, Dsqr, Qsqr)
 
+        
     end if
 
     if (this%tPopulations) then
@@ -2279,12 +2322,18 @@ contains
         iSpin = this%parallelKS%localKS(2, iKS)
         if (this%tRealHS) then
           ! if scalapack
-          ! call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr, filling(:,iSpin),&
-          ! & eigvecs(:,:,iKS), work)
+!          T2(:,:) = 0.0_dp
 
+!          call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, this%denseDesc%blacsOrbSqr, filling(:,1,iSpin),&
+!          & eigvecsReal(:,:,iKS), T2)
+ !         rho(:,:,iKS) = cmplx(T2, 0, dp)
+
+          !# else 
           T2(:,:) = 0.0_dp
           call makeDensityMatrix(T2, eigvecsReal(:,:,iKS), filling(:,1,iSpin))
           rho(:,:,iKS) = cmplx(T2, 0, dp)
+          !# end if
+
         else
           call makeDensityMatrix(rho(:,:,iKS), eigvecsCplx(:,:,iKS), filling(:,iK,iSpin))
         end if
