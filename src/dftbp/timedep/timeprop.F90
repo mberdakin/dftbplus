@@ -72,7 +72,17 @@ module dftbp_timedep_timeprop
   use dftbp_type_densedescr, only: TDenseDescr
   use dftbp_type_integral, only : TIntegral
   use dftbp_type_multipole, only : TMultipole, TMultipole_init
-#:if WITH_MBD
+  !! Mati added calls for blacs
+  #:if WITH_SCALAPACK
+  use dftbp_dftb_densitymatrix, only : makeDensityMtxRealBlacs
+  use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
+  use dftbp_math_scalafxext, only : psymmatinv
+  use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
+  #:endif
+  use dftbp_io_message, only : error, warning
+  
+  !!
+  #:if WITH_MBD
   use dftbp_dftb_dispmbd, only : TDispMbd
 #:endif
   implicit none
@@ -2203,7 +2213,7 @@ contains
       Ssqr(:,:,:) = 0.0_dp
       Sinv(:,:,:) = 0.0_dp
       ! ACA with_scalapack 
-!   #:if WITH_SCALAPACK
+    #:if WITH_SCALAPACK
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
           call  unpackHSRealBlacs(env%blacs, ints%overlap, iNeighbour,&
@@ -2223,15 +2233,17 @@ contains
           ! para las multiplicaciones vamos a usar pblasfx_psymm de main.F90 de la subrutina 
           ! getEDensityMtxFromRealEigvecs
 
-          call psymmatinv(this%denseDesc, T2, errStatus)          
+!          call psymmatinv(this%denseDesc, T2, errStatus)   <-- Original  
+          call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)          
+ 
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
-        else:
-          ! call error : Not available for non real H with MPI 
+        else
+          !call error("MPI for Electron dynamics only for finit systems") 
 
         end if
       end do
 
-!      #:else
+    #:else
  
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
@@ -2262,22 +2274,25 @@ contains
       end do
       write(stdOut,"(A)")'S inverted'
 
+    #:endif    
+
+
       !!! 
       do iKS = 1, this%parallelKS%nLocalKS
         iK = this%parallelKS%localKS(1, iKS)
         iSpin = this%parallelKS%localKS(2, iKS)
         if (this%tRealHS) then
           !!!
-!   #:if WITH_SCALAPACK
+   #:if WITH_SCALAPACK
         call  unpackHSRealBlacs(env%blacs, ints%hamiltonian(:,iSpin), iNeighbour,&
                & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T3)
           H1(:,:,iKS) = cmplx(T3, 0, dp)
-!   #:else : 
+   #:else  
           call unpackHS(T3, ints%hamiltonian(:,iSpin), iNeighbour, nNeighbourSK, iSquare,&
               & iSparseStart, img2CentCell)
           call adjointLowerTriangle(T3)
           H1(:,:,iKS) = cmplx(T3, 0, dp)
-!   #:end if
+   #:endif
         else
           call unpackHS(H1(:,:,iKS), ints%hamiltonian(:,iSpin), this%kPoint(:,iK), iNeighbour,&
               & nNeighbourSK, this%iCellVec, this%cellVec, iSquare, iSparseStart, img2CentCell)
@@ -2321,18 +2336,16 @@ contains
         iK = this%parallelKS%localKS(1, iKS)
         iSpin = this%parallelKS%localKS(2, iKS)
         if (this%tRealHS) then
-          ! if scalapack
-!          T2(:,:) = 0.0_dp
+          #:if WITH_SCALAPACK
+          call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, this%denseDesc%blacsOrbSqr, filling(:,1,iSpin),&
+          & eigvecsReal(:,:,iKS), T2)
+          rho(:,:,iKS) = cmplx(T2, 0, dp)
 
-!          call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, this%denseDesc%blacsOrbSqr, filling(:,1,iSpin),&
-!          & eigvecsReal(:,:,iKS), T2)
- !         rho(:,:,iKS) = cmplx(T2, 0, dp)
-
-          !# else 
+          #:else 
           T2(:,:) = 0.0_dp
           call makeDensityMatrix(T2, eigvecsReal(:,:,iKS), filling(:,1,iSpin))
           rho(:,:,iKS) = cmplx(T2, 0, dp)
-          !# end if
+          #:endif
 
         else
           call makeDensityMatrix(rho(:,:,iKS), eigvecsCplx(:,:,iKS), filling(:,iK,iSpin))
@@ -4204,7 +4217,7 @@ contains
         & neighbourList%iNeighbour, nNeighbourSK, iSquare, iSparseStart, img2CentCell, this%Eiginv,&
         & this%EiginvAdj, this%energy, this%ErhoPrim, this%qBlock, this%qNetAtom, allocated(dftbU),&
         & onSiteElements, eigvecsCplx, this%H1LC, this%bondWork, this%fdBondEnergy,&
-        & this%fdBondPopul, this%lastBondPopul, this%time, env)
+        & this%fdBondPopul, this%lastBondPopul, this%time, env, errStatus)
 
     if (this%tPeriodic) then
       call initLatticeVectors(this, boundaryCond)
