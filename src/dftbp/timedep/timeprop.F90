@@ -78,6 +78,7 @@ module dftbp_timedep_timeprop
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
   use dftbp_math_scalafxext, only : psymmatinv
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
+  use dftbp_extlibs_scalapackfx, only : pblasfx_psymm
   #:endif
   use dftbp_io_message, only : error, warning
   
@@ -2499,6 +2500,87 @@ contains
 
   end subroutine propagateRho
 
+
+  !> Propagate rho with Scalapack for real Hamiltonian (used for frozen nuclei dynamics and gamma point periodic)
+  #:if WITH_SCALAPACK
+  subroutine propagateRhoRealHBlacs(this, rhoOld, rho, H1, Sinv, step, eigvecsReal)
+
+    !> ElecDynamics instance
+    type(TElecDynamics), intent(inout) :: this
+
+    !> Density matrix at previous step
+    complex(dp), intent(inout) :: rhoOld(:,:)
+
+    !> Density matrix
+    complex(dp), intent(in) :: rho(:,:)
+
+    !> Square hamiltonian
+    complex(dp), intent(in) :: H1(:,:)
+
+    !> Square overlap inverse
+    complex(dp), intent(in) :: Sinv(:,:)
+
+    !> Time step in atomic units
+    real(dp), intent(in) :: step
+
+    real(dp), allocatable :: T1R(:,:), T2R(:,:), T3R(:,:),T4R(:,:)
+
+    !> Eigenvectors
+    real(dp), intent(in):: eigvecsReal(:,:)
+    
+    integer :: nLocalCols, nLocalRows
+
+    !ORIGINAL ALLOCATION
+    !allocate(T1R(this%nOrbs,this%nOrbs))
+    !allocate(T2R(this%nOrbs,this%nOrbs))
+    !allocate(T3R(this%nOrbs,this%nOrbs))
+    !allocate(T4R(this%nOrbs,this%nOrbs))
+    !
+    !NEW ALLOCATION 
+    nLocalRows = size(eigvecsReal, dim=1)
+    nLocalCols = size(eigvecsReal, dim=2)
+    allocate(T1R(nLocalRows,nLocalCols))
+    allocate(T2R(nLocalRows,nLocalCols))
+    allocate(T3R(nLocalRows,nLocalCols))
+    allocate(T4R(nLocalRows,nLocalCols))
+
+    ! The code below takes into account that Sinv and H1 are real, this is twice as fast as the
+    ! original above (propageteRho)
+
+    ! get the real part of Sinv and H1
+    T1R(:,:) = real(H1)
+    T2R(:,:) = real(Sinv)
+
+!   old call
+!    call gemm(T3R,T2R,T1R)
+!   Example of scalapack call:
+!    call pblasfx_psymm(work2, denseDesc%blacsOrbSqr, work, denseDesc%blacsOrbSqr,&
+!    & eigvecsReal(:,:,iKS), denseDesc%blacsOrbSqr, side="L")
+
+    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+        & T3R, this%denseDesc%blacsOrbSqr)    
+
+    T2R(:,:) = T3R
+
+    ! calculate the first term products for the real and imaginary parts independently
+    T1R(:,:) = real(rho)
+!    call gemm(T3R,T2R,T1R)
+    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+        & T3R, this%denseDesc%blacsOrbSqr)    
+
+    T1R(:,:) = aimag(rho)
+!    call gemm(T4R,T2R,T1R)
+    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+    & T4R, this%denseDesc%blacsOrbSqr)   
+
+    ! build the commutator combining the real and imaginary parts of the previous result
+    !$OMP WORKSHARE
+    rhoOld(:,:) = rhoOld + cmplx(0, -step, dp) * (T3R + imag * T4R)&
+        & + cmplx(0, step, dp) * transpose(T3R - imag * T4R)
+    !$OMP END WORKSHARE
+
+  end subroutine propagateRhoRealHBlacs
+  #:endif 
 
   !> Propagate rho for real Hamiltonian (used for frozen nuclei dynamics and gamma point periodic)
   subroutine propagateRhoRealH(this, rhoOld, rho, H1, Sinv, step)
