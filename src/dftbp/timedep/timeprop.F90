@@ -79,6 +79,9 @@ module dftbp_timedep_timeprop
   use dftbp_math_scalafxext, only : psymmatinv
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
   use dftbp_extlibs_scalapackfx, only : pblasfx_psymm
+  use dftbp_dftb_sparse2dense, only : packRhoRealBlacs
+  use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
+  use dftbp_dftb_populations, only : mulliken
   #:endif
   use dftbp_io_message, only : error, warning
   
@@ -1710,10 +1713,11 @@ contains
 
   !> Calculate charges, dipole moments
   subroutine getChargeDipole(this, deltaQ, qq, multipole, dipole, q0, rho, Ssqr, Dsqr, Qsqr,&
-      & coord, iSquare, eFieldScaling, qBlock, qNetAtom, errStatus)
-
+      & coord, iSquare, eFieldScaling, qBlock, qNetAtom, errStatus, &
+      & iNeighbour, nNeighbourSK, orb, iSparseStart, img2CentCell,  env, ints)
+      
     !> ElecDynamics instance
-    type(TElecDynamics), intent(in) :: this
+    type(TElecDynamics), intent(inout) :: this
 
     !> Negative gross charge
     real(dp), intent(out) :: deltaQ(:,:)
@@ -1760,11 +1764,74 @@ contains
     !> Error status
     type(TStatus), intent(out) :: errStatus
 
+    !> Atomic neighbour data
+    integer, intent(in) :: iNeighbour(0:,:)
+
+    !> Number of neighbours for each of the atoms
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> index array for location of atomic blocks in large sparse arrays
+    integer, intent(in) :: iSparseStart(0:,:)
+
+    !> image atoms to their equivalent in the central cell
+    integer, intent(in) :: img2CentCell(:)
+
+    !> Environment settings
+    type(TEnvironment), intent(inout) :: env
+
+    !> Integral container
+    type(TIntegral), intent(inout) :: ints
+
     integer :: iAt, iSpin, iOrb1, iOrb2, nOrb, iKS, iK, ii
 
     qq(:,:,:) = 0.0_dp
+    !!!ES ESTA
+    !!! 1.  multiplicar 
+    !!! 2. pasar denseTosparse y usar mulliken de main -- > Vamos por esta!!   
+    
     if (this%tRealHS) then
 
+      #:if WITH_SCALAPACK
+      this%rhoPrim(:,:) = 0.0_dp
+
+      do iSpin = 1, this%nSpin
+!      do iSpin = 1, this%nSpin
+!        do iAt = 1, this%nAtom
+!          iOrb1 = iSquare(iAt)
+!          iOrb2 = iSquare(iAt+1)-1
+          ! hermitian transpose used as real part only is needed
+          ! Opción 1: Acá tenemos que calcular qq con la multiplicación de scalapack
+!      call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+!      & T3R, this%denseDesc%blacsOrbSqr)    
+
+          !Opción 2: vamos a pasar a sparse 
+        call packRhoRealBlacs(env%blacs, this%denseDesc, real(rho(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
+        & orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
+  
+!      Luego apilamos rhoPrime en una sola copia :
+      ! Add up and distribute density matrix contribution from each group
+
+      enddo 
+        call mpifx_allreduceip(env%mpi%globalComm, this%rhoPrim, MPI_SUM)
+
+      !! Llamamos : 
+
+        do iSpin = 1, this%nSpin
+    
+        call mulliken(env, qq(:,:,iSpin), ints%overlap, this%rhoPrim(:,iSpin), orb, iNeighbour,&
+         & nNeighbourSK, img2CentCell, iSparseStart)
+          ! La salida es qOrb(:,:,iSpin) que contiene todas las cargas 
+
+      end do
+!      end do
+!
+!
+
+      #:else
+  
       do iSpin = 1, this%nSpin
         do iAt = 1, this%nAtom
           iOrb1 = iSquare(iAt)
@@ -1774,6 +1841,8 @@ contains
               & rho(:,iOrb1:iOrb2,iSpin)*Ssqr(:,iOrb1:iOrb2,iSpin), dim=1), dp)
         end do
       end do
+
+      #:endif
 
     else
 
@@ -4342,7 +4411,8 @@ contains
 
     call getChargeDipole(this, this%deltaQ, this%qq, this%multipole, this%dipole, q0,&
         & this%trho, this%Ssqr, this%Dsqr, this%Qsqr, coord, iSquare, eFieldScaling, this%qBlock,&
-        & this%qNetAtom, errStatus)
+        & this%qNetAtom, errStatus, &
+        & neighbourList%iNeighbour, nNeighbourSK, orb, iSparseStart, img2CentCell,  env, ints)
     @:PROPAGATE_ERROR(errStatus)
     if (allocated(this%dispersion)) then
       call this%dispersion%updateOnsiteCharges(this%qNetAtom, orb, referenceN0,&
@@ -4426,7 +4496,8 @@ contains
 
     call getChargeDipole(this, this%deltaQ, this%qq, this%multipole, this%dipole, q0,&
         & this%rho, this%Ssqr, this%Dsqr, this%Qsqr, coord, iSquare, eFieldScaling, this%qBlock,&
-        & this%qNetAtom, errStatus)
+        & this%qNetAtom, errStatus, &
+        & neighbourList%iNeighbour, nNeighbourSK, orb, iSparseStart, img2CentCell,  env, ints)
     @:PROPAGATE_ERROR(errStatus)
     if (allocated(this%dispersion)) then
       call this%dispersion%updateOnsiteCharges(this%qNetAtom, orb, referenceN0,&
@@ -4628,8 +4699,14 @@ contains
               & this%H1(:,:,iKS), this%Sinv(:,:,iKS), 2.0_dp * this%dt)
         end if
       else
+      #:if WITH_SCALAPACK
+        call propagateRhoRealHBlacs(this, this%rhoOld(:,:,iKS), this%rho(:,:,iKS),&
+      & this%H1(:,:,iKS), this%Sinv(:,:,iKS), 2.0_dp * this%dt)
+
+      #:else
         call propagateRhoRealH(this, this%rhoOld(:,:,iKS), this%rho(:,:,iKS),&
             & this%H1(:,:,iKS), this%Sinv(:,:,iKS), 2.0_dp * this%dt)
+      #:endif
       end if
     end do
 
@@ -4700,7 +4777,8 @@ contains
 
     call getChargeDipole(this, this%deltaQ, this%qq, this%multipole, this%dipole, q0,&
         & this%rho, this%Ssqr, this%Dsqr, this%Qsqr, coord, iSquare, eFieldScaling, this%qBlock,&
-        & this%qNetAtom, errStatus)
+        & this%qNetAtom, errStatus, &
+        & neighbourList%iNeighbour, nNeighbourSK, orb, iSparseStart, img2CentCell,  env, ints)
     @:PROPAGATE_ERROR(errStatus)
     if (allocated(this%dispersion)) then
       call this%dispersion%updateOnsiteCharges(this%qNetAtom, orb, referenceN0,&
