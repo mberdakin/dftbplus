@@ -78,7 +78,7 @@ module dftbp_timedep_timeprop
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
   use dftbp_math_scalafxext, only : psymmatinv
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
-  use dftbp_extlibs_scalapackfx, only : pblasfx_psymm
+  use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran
   use dftbp_dftb_sparse2dense, only : packRhoRealBlacs
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_dftb_populations, only : mulliken
@@ -1786,6 +1786,7 @@ contains
     type(TIntegral), intent(inout) :: ints
 
     integer :: iAt, iSpin, iOrb1, iOrb2, nOrb, iKS, iK, ii
+    real(dp), allocatable :: tmp(:,:)
 
     qq(:,:,:) = 0.0_dp
     !!!ES ESTA
@@ -1808,9 +1809,16 @@ contains
 !      & T3R, this%denseDesc%blacsOrbSqr)    
 
           !Opción 2: vamos a pasar a sparse 
-        call packRhoRealBlacs(env%blacs, this%denseDesc, real(rho(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
+          !CALL ORIGINAL :
+        !call packRhoRealBlacs(env%blacs, this%denseDesc, real(rho(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
+        !& orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
+
+          !CALL check
+        tmp = real(rho(:,:,iSpin), dp)
+        call packRhoRealBlacs(env%blacs, this%denseDesc, tmp, iNeighbour, nNeighbourSK,&
         & orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
-  
+        deallocate(tmp)
+
 !      Luego apilamos rhoPrime en una sola copia :
       ! Add up and distribute density matrix contribution from each group
 
@@ -2579,6 +2587,69 @@ contains
   end subroutine propagateRho
 
 
+    !> Propagate rho with blacs, notice that H = iH (coefficients are real)
+  subroutine propagateRhoBlacs(this, rhoOld, rho, H1, Sinv, step)
+
+    !> ElecDynamics instance
+    type(TElecDynamics), intent(inout) :: this
+
+    !> Density matrix at previous step
+    complex(dp), intent(inout) :: rhoOld(:,:)
+
+    !> Density matrix
+    complex(dp), intent(in) :: rho(:,:)
+
+    !> Square imaginary hamiltonian plus non-adiabatic contribution
+    complex(dp), intent(in) :: H1(:,:)
+
+    !> Square overlap inverse
+    complex(dp), intent(in) :: Sinv(:,:)
+
+    !> Time step in atomic units
+    real(dp), intent(in) :: step
+
+    complex(dp), allocatable :: T1(:,:)
+    complex(dp), allocatable :: T2(:,:)
+
+    !allocate(T1(this%nOrbs,this%nOrbs))
+
+    integer :: nLocalCols, nLocalRows
+    nLocalRows = size(rho, dim=1)
+    nLocalCols = size(rho, dim=2)
+    allocate(T1(nLocalRows,nLocalCols))
+    allocate(T2(nLocalRows,nLocalCols))
+
+    T1(:,:) = 0.0_dp
+    T2(:,:) = 0.0_dp
+
+    !old matmul:
+!    call gemm(T1, Sinv, H1)
+!    call gemm(rhoOld, T1, rho, cmplx(-step, 0, dp), cmplx(1, 0, dp))
+!    call gemm(rhoOld, rho, T1, cmplx(-step, 0, dp), cmplx(1, 0, dp), 'N', 'C')
+    !Exmple with Blacs:
+    !     call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+    ! & T3R, this%denseDesc%blacsOrbSqr)   
+    !subroutine gemm_dblecmplx(C,A,B,alpha,beta,transA,transB,n,m,k) 
+    !C := alpha*op( A )*op( B ) + beta*C
+    !for psymm: y := alpha*A*x + beta*y,
+    !from intel : dsymv(uplo, n, alpha, a, lda, x, incx, beta, y, incy)
+    
+    !ptrasn sub(C):=beta*sub(C) + alpha*sub(A)'
+
+    ! Correct force for XLBOMD for T <> 0K (DHS^-1 + S^-1HD)
+!    call pblasfx_psymm(Sinv, this%denseDesc%blacsOrbSqr, H1, this%denseDesc%blacsOrbSqr,&
+!    & T1, this%denseDesc%blacsOrbSqr, side="L")
+!    call pblasfx_psymm(rho, this%denseDesc%blacsOrbSqr, T1,&
+!    & this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr, alpha= cmplx(-step, 0, dp))
+!    T1 = T2
+!    call pblasfx_ptran(T2, this%denseDesc%blacsOrbSqr, T1, this%denseDesc%blacsOrbSqr, alpha=1.0_dp,&
+!    & beta=1.0_dp)
+
+!    rhoOld = rhoOld + T1
+
+  end subroutine propagateRhoBlacs
+
+
   !> Propagate rho with Scalapack for real Hamiltonian (used for frozen nuclei dynamics and gamma point periodic)
   #:if WITH_SCALAPACK
   subroutine propagateRhoRealHBlacs(this, rhoOld, rho, H1, Sinv, step)
@@ -2648,12 +2719,20 @@ contains
 !    call gemm(T4R,T2R,T1R)
     call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
     & T4R, this%denseDesc%blacsOrbSqr)   
+    call pblasfx_ptran(T3R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr)
+    call pblasfx_ptran(T4R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr)
 
     ! build the commutator combining the real and imaginary parts of the previous result
+
     !$OMP WORKSHARE
     rhoOld(:,:) = rhoOld + cmplx(0, -step, dp) * (T3R + imag * T4R)&
-        & + cmplx(0, step, dp) * transpose(T3R - imag * T4R)
+        & + cmplx(0, step, dp) * (T1R - imag * T2R)
     !$OMP END WORKSHARE
+
+    deallocate(T1R)
+    deallocate(T2R)
+    deallocate(T3R)
+    deallocate(T4R)
 
   end subroutine propagateRhoRealHBlacs
   #:endif 
