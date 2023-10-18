@@ -2464,6 +2464,10 @@ contains
     call getBondPopulAndEnergy(this, bondWork, lastBondPopul, rhoPrim, ham0, ints, iNeighbour,&
         & nNeighbourSK, iSparseStart, img2CentCell, iSquare, fdBondEnergy, fdBondPopul, time)
 
+if (this%tRealHS) then
+    deallocate(T2)
+    deallocate(T3)
+endif
   end subroutine initializeTDVariables
 
 
