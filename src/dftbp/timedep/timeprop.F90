@@ -1475,8 +1475,20 @@ contains
     real(dp), allocatable :: T2(:,:)
     integer :: iAtom, iEatom, iSpin, iKS, iK
     logical :: tImHam
+    integer :: nLocalCols, nLocalRows
 
-    allocate(T2(this%nOrbs,this%nOrbs))
+!    allocate(T2(this%nOrbs,this%nOrbs))
+    #:if WITH_SCALAPACK
+      nLocalRows = size(H1, dim=1)
+      nLocalCols = size(H1, dim=2)
+    #:else
+      nLocalRows = this%nOrbs
+      nLocalCols = this%nOrbs
+    #:endif    
+
+    if (this%tRealHS) then
+      allocate(T2(nLocalRows,nLocalCols))
+    end if 
 
     ints%hamiltonian(:,:) = 0.0_dp
 
@@ -1534,6 +1546,28 @@ contains
       call qm2ud(qq)
     end if
 
+    #:if WITH_SCALAPACK
+    do iKS = 1, this%parallelKS%nLocalKS
+      iK = this%parallelKS%localKS(1, iKS)
+      iSpin = this%parallelKS%localKS(2, iKS)
+      if (this%tRealHS) then
+        !call unpackHS(T2, ints%hamiltonian(:,iSpin), neighbourList%iNeighbour, nNeighbourSK,&
+        !    & iSquare, iSparseStart, img2CentCell)
+        !call blockSymmetrizeHS(T2, iSquare)
+        call  unpackHSRealBlacs(env%blacs, ints%hamiltonian(:,iSpin), neighbourList%iNeighbour,&
+               & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T2)
+        H1(:,:,iSpin) = cmplx(T2, 0.0_dp, dp)
+      
+      ! ADD IN THE FUTURE
+      !else
+      !  call unpackHS(H1(:,:,iKS), ints%hamiltonian(:,iSpin), this%kPoint(:,iK),&
+      !      & neighbourList%iNeighbour, nNeighbourSK, this%iCellVec, this%cellVec, iSquare,&
+      !      & iSparseStart, img2CentCell)
+      !  call blockHermitianHS(H1(:,:,iKS), iSquare)
+      end if
+    end do
+
+    #:else
     do iKS = 1, this%parallelKS%nLocalKS
       iK = this%parallelKS%localKS(1, iKS)
       iSpin = this%parallelKS%localKS(2, iKS)
@@ -1549,6 +1583,7 @@ contains
         call adjointLowerTriangle(H1(:,:,iKS))
       end if
     end do
+    #:endif
 
     ! add hybrid xc-functional contribution
     if (this%isHybridXc) then
@@ -1797,7 +1832,7 @@ contains
 
       #:if WITH_SCALAPACK
       this%rhoPrim(:,:) = 0.0_dp
-
+      allocate(tmp (size(rho,dim=1),size(rho,dim=2)))
       do iSpin = 1, this%nSpin
 !      do iSpin = 1, this%nSpin
 !        do iAt = 1, this%nAtom
@@ -1817,12 +1852,13 @@ contains
         tmp = real(rho(:,:,iSpin), dp)
         call packRhoRealBlacs(env%blacs, this%denseDesc, tmp, iNeighbour, nNeighbourSK,&
         & orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
-        deallocate(tmp)
 
 !      Luego apilamos rhoPrime en una sola copia :
       ! Add up and distribute density matrix contribution from each group
 
       enddo 
+      deallocate(tmp)
+
         call mpifx_allreduceip(env%mpi%globalComm, this%rhoPrim, MPI_SUM)
 
       !! Llamamos : 
@@ -2699,8 +2735,8 @@ endif
     ! original above (propageteRho)
 
     ! get the real part of Sinv and H1
-    T1R(:,:) = real(H1)
-    T2R(:,:) = real(Sinv)
+    T2R(:,:) = real(H1)
+    T1R(:,:) = real(rho)
 
 !   old call
 !    call gemm(T3R,T2R,T1R)
@@ -2708,21 +2744,33 @@ endif
 !    call pblasfx_psymm(work2, denseDesc%blacsOrbSqr, work, denseDesc%blacsOrbSqr,&
 !    & eigvecsReal(:,:,iKS), denseDesc%blacsOrbSqr, side="L")
 
-    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-        & T3R, this%denseDesc%blacsOrbSqr)    
+!    OLD call:
+!    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+!        & T3R, this%denseDesc%blacsOrbSqr)    
+    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+        & T3R, this%denseDesc%blacsOrbSqr, side="L")    
 
-    T2R(:,:) = T3R
-
-    ! calculate the first term products for the real and imaginary parts independently
-    T1R(:,:) = real(rho)
-!    call gemm(T3R,T2R,T1R)
-    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-        & T3R, this%denseDesc%blacsOrbSqr)    
+    T2R(:,:) = T3R  
+    T1R(:,:) = real(Sinv)
+ 
+    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+        & T3R, this%denseDesc%blacsOrbSqr, side="R")    
+   ! T3R real(rho)HSinv
 
     T1R(:,:) = aimag(rho)
-!    call gemm(T4R,T2R,T1R)
-    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-    & T4R, this%denseDesc%blacsOrbSqr)   
+    T2R(:,:) = real(H1)
+
+    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+    & T4R, this%denseDesc%blacsOrbSqr, side="L")    
+    
+    T2R(:,:) = T4R  
+    T1R(:,:) = real(Sinv)
+
+    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+        & T4R, this%denseDesc%blacsOrbSqr, side="R")    
+
+   ! T4R= imag(rho)HSinv
+
     call pblasfx_ptran(T3R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr)
     call pblasfx_ptran(T4R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr)
 
@@ -4401,12 +4449,6 @@ endif
     allocate(this%Sinv(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
     allocate(this%H1(nLocalRows,nLocalCols,this%parallelKS%nLocalKS))
     
-!   delete this
-!    allocate(this%trho(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-!    allocate(this%trhoOld(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-!    allocate(this%Ssqr(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-!    allocate(this%Sinv(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
-!    allocate(this%H1(this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
     
     if (this%nDipole > 0) then
       allocate(this%Dsqr(this%nDipole,this%nOrbs,this%nOrbs,this%parallelKS%nLocalKS))
@@ -4532,6 +4574,7 @@ endif
     end if
 
     ! Apply kick to rho if necessary (in restart case, check it starttime is 0 or not)
+    ! TODO --> Kick for MPI
     if (this%tKick .and. this%startTime < this%dt / 10.0_dp) then
       call kickDM(this, this%trho, this%Ssqr, this%Sinv, iSquare, coord)
     end if
