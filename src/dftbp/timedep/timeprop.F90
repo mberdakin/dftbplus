@@ -1308,7 +1308,8 @@ contains
     type(TStatus), intent(inout) :: errStatus
 
     type(TTimer) :: loopTime
-    integer :: iStep
+
+    integer :: iStep, i, j
     real(dp) :: timeElec
 
     call env%globalTimer%startTimer(globalTimers%elecDynInit)
@@ -1332,6 +1333,19 @@ contains
 
     ! Main loop
     do iStep = 1, this%nSteps
+      write(*, *) "write from mainloop dynamics" 
+      write(*, *)  
+      write(*, *) iStep
+      do i =1,2 
+        do j=1,2
+
+!      write(*, *) this%rho(:,:,:)
+!      write(*, *)
+!      write(*, *) this%H1(:,:,:)
+!      write(*, *)
+      write(*, *) i,j,this%Sinv(i,j,:)
+        enddo
+      enddo
 
       call doTdStep(this, boundaryCond, iStep, coord, orb, neighbourList, nNeighbourSK,&
        & iSquare, iSparseStart, img2CentCell, skHamCont, skOverCont, ints, env,&
@@ -1863,13 +1877,15 @@ contains
 
       !! Llamamos : 
 
-        do iSpin = 1, this%nSpin
+      do iSpin = 1, this%nSpin
     
-        call mulliken(env, qq(:,:,iSpin), ints%overlap, this%rhoPrim(:,iSpin), orb, iNeighbour,&
-         & nNeighbourSK, img2CentCell, iSparseStart)
+       call mulliken(env, qq(:,:,iSpin), ints%overlap, this%rhoPrim(:,iSpin), orb, iNeighbour,&
+        & nNeighbourSK, img2CentCell, iSparseStart)
           ! La salida es qOrb(:,:,iSpin) que contiene todas las cargas 
 
-      end do
+ 
+      enddo
+
 !      end do
 !
 !
@@ -2386,9 +2402,10 @@ contains
           call gesv(T4, Sinv(:,:,iKS))
         end if
       end do
-      write(stdOut,"(A)")'S inverted'
 
     #:endif    
+
+    write(stdOut,"(A)")'S inverted'
 
 
       !!! 
@@ -2776,10 +2793,10 @@ endif
 
     ! build the commutator combining the real and imaginary parts of the previous result
 
-    !$OMP WORKSHARE
+ !   !$OMP WORKSHARE
     rhoOld(:,:) = rhoOld + cmplx(0, -step, dp) * (T3R + imag * T4R)&
         & + cmplx(0, step, dp) * (T1R - imag * T2R)
-    !$OMP END WORKSHARE
+!    !$OMP END WORKSHARE
 
     deallocate(T1R)
     deallocate(T2R)

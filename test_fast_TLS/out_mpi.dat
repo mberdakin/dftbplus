@@ -1,0 +1,174 @@
+|===============================================================================
+|
+|  DFTB+ development version (commit: 9ff48d33, base: 23.1)
+|
+|  Copyright (C) 2006 - 2023  DFTB+ developers group
+|
+|===============================================================================
+|
+|  When publishing results obtained with DFTB+, please cite the following
+|  reference:
+|
+|  * DFTB+, a software package for efficient approximate density functional
+|    theory based atomistic simulations, J. Chem. Phys. 152, 124101 (2020).
+|    [doi: 10.1063/1.5143190]
+|
+|  You should also cite additional publications crediting the parametrization
+|  data you use. Please consult the documentation of the SK-files for the
+|  references.
+|
+|===============================================================================
+
+Reading input file 'dftb_in.hsd'
+Parser version: 14
+
+--------------------------------------------------------------------------------
+***  Converting input from parser version  8 to parser version 14 ...
+***  Done.
+
+Reading SK-files:
+/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/external/slakos/origin/mio-1-1/H-H.skf
+Done.
+
+
+Processed input in HSD format written to 'dftb_pin.hsd'
+
+Starting initialization...
+--------------------------------------------------------------------------------
+MPI processes:               1
+OpenMP threads:              2
+BLACS orbital grid size:     1 x 1
+BLACS atom grid size:        1 x 1
+Chosen random seed:          7372823
+Current stacksize:           8 [Mb] (recommended: unlimited)
+WARNING!
+-> Current stacksize not set to unlimited or hard limit, which might cause
+   random crashes (e.g. segmentation faults). It is advised to unlimit the
+   stacksize by issuing 'ulimit -s unlimited' (Linux) or setting it to the 
+   hard limit by 'ulimit -s hard' (Mac) in advance.
+Mode:                        Static calculation
+Self consistent charges:     Yes
+SCC-tolerance:                 0.100000E-09
+Max. scc iterations:                    100
+Shell resolved Hubbard:      No
+Spin polarisation:           No
+Nr. of up electrons:             1.000000
+Nr. of down electrons:           1.000000
+Periodic boundaries:         No
+Electronic solver:           Relatively robust
+Mixer:                       Broyden mixer
+Mixing parameter:                  0.200000
+Maximal SCC-cycles:                     100
+Nr. of chrg. vec. in memory:            100
+Electronic temperature:              0.865016E-03 H      0.235383E-01 eV
+Initial charges:             Set automatically (system chrg:   0.000E+00)
+Included shells:             H:  s
+Extra options:
+                             Mulliken analysis
+
+--------------------------------------------------------------------------------
+
+***  Geometry step: 0
+
+ iSCC Total electronic   Diff electronic      SCC error    
+    1    0.00000000E+00    0.00000000E+00    0.88817842E-15
+>> Charges saved for restart in charges.bin
+
+Total Energy:                       -0.6497580023 H          -17.6808 eV
+Extrapolated to 0K:                 -0.6497580023 H          -17.6808 eV
+Total Mermin free energy:           -0.6497580023 H          -17.6808 eV
+Force related energy:               -0.6497580023 H          -17.6808 eV
+
+S inverted
+
+Starting electronic dynamics...
+--------------------------------------------------------------------------------
+ write from mainloop dynamics
+
+           1
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        1  elapsed loop time:   0.000000  average time per loop   0.000000
+ write from mainloop dynamics
+
+           2
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        2  elapsed loop time:   0.000000  average time per loop   0.000000
+ write from mainloop dynamics
+
+           3
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        3  elapsed loop time:   0.000000  average time per loop   0.000000
+ write from mainloop dynamics
+
+           4
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        4  elapsed loop time:   0.001000  average time per loop   0.000200
+ write from mainloop dynamics
+
+           5
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        5  elapsed loop time:   0.001000  average time per loop   0.000167
+ write from mainloop dynamics
+
+           6
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        6  elapsed loop time:   0.001000  average time per loop   0.000143
+ write from mainloop dynamics
+
+           7
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        7  elapsed loop time:   0.001000  average time per loop   0.000125
+ write from mainloop dynamics
+
+           8
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        8  elapsed loop time:   0.001000  average time per loop   0.000111
+ write from mainloop dynamics
+
+           9
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step        9  elapsed loop time:   0.001000  average time per loop   0.000100
+ write from mainloop dynamics
+
+          10
+           1           1               (1.2695358055696770,0.0000000000000000)
+           1           2              (0.46077165585844981,0.0000000000000000)
+           2           1             (-0.58496611530393106,0.0000000000000000)
+           2           2               (1.2695358055696770,0.0000000000000000)
+Step       10  elapsed loop time:   0.002000  average time per loop   0.000182
+Dynamics finished OK!
+
+--------------------------------------------------------------------------------
+DFTB+ running times                          cpu [s]             wall clock [s]
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+Missing                                +       0.01 (100.0%)       0.01 (100.0%)
+Total                                  =       0.01 (100.0%)       0.01 (100.0%)
+--------------------------------------------------------------------------------
