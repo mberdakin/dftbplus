@@ -76,7 +76,7 @@ module dftbp_timedep_timeprop
   #:if WITH_SCALAPACK
   use dftbp_dftb_densitymatrix, only : makeDensityMtxRealBlacs
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
-  use dftbp_math_scalafxext, only : psymmatinv
+  use dftbp_math_scalafxext, only : psymmatinv, phermatinv
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs
   use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran
   use dftbp_dftb_sparse2dense, only : packRhoRealBlacs
@@ -1333,19 +1333,6 @@ contains
 
     ! Main loop
     do iStep = 1, this%nSteps
-      write(*, *) "write from mainloop dynamics" 
-      write(*, *)  
-      write(*, *) iStep
-      do i =1,2 
-        do j=1,2
-
-!      write(*, *) this%rho(:,:,:)
-!      write(*, *)
-!      write(*, *) this%H1(:,:,:)
-!      write(*, *)
-      write(*, *) i,j,this%Sinv(i,j,:)
-        enddo
-      enddo
 
       call doTdStep(this, boundaryCond, iStep, coord, orb, neighbourList, nNeighbourSK,&
        & iSquare, iSparseStart, img2CentCell, skHamCont, skOverCont, ints, env,&
@@ -1838,9 +1825,7 @@ contains
     real(dp), allocatable :: tmp(:,:)
 
     qq(:,:,:) = 0.0_dp
-    !!!ES ESTA
-    !!! 1.  multiplicar 
-    !!! 2. pasar denseTosparse y usar mulliken de main -- > Vamos por esta!!   
+
     
     if (this%tRealHS) then
 
@@ -1848,47 +1833,23 @@ contains
       this%rhoPrim(:,:) = 0.0_dp
       allocate(tmp (size(rho,dim=1),size(rho,dim=2)))
       do iSpin = 1, this%nSpin
-!      do iSpin = 1, this%nSpin
-!        do iAt = 1, this%nAtom
-!          iOrb1 = iSquare(iAt)
-!          iOrb2 = iSquare(iAt+1)-1
-          ! hermitian transpose used as real part only is needed
-          ! Opción 1: Acá tenemos que calcular qq con la multiplicación de scalapack
-!      call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-!      & T3R, this%denseDesc%blacsOrbSqr)    
 
-          !Opción 2: vamos a pasar a sparse 
-          !CALL ORIGINAL :
-        !call packRhoRealBlacs(env%blacs, this%denseDesc, real(rho(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
-        !& orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
-
-          !CALL check
         tmp = real(rho(:,:,iSpin), dp)
         call packRhoRealBlacs(env%blacs, this%denseDesc, tmp, iNeighbour, nNeighbourSK,&
         & orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
-
-!      Luego apilamos rhoPrime en una sola copia :
-      ! Add up and distribute density matrix contribution from each group
 
       enddo 
       deallocate(tmp)
 
         call mpifx_allreduceip(env%mpi%globalComm, this%rhoPrim, MPI_SUM)
 
-      !! Llamamos : 
-
       do iSpin = 1, this%nSpin
     
        call mulliken(env, qq(:,:,iSpin), ints%overlap, this%rhoPrim(:,iSpin), orb, iNeighbour,&
         & nNeighbourSK, img2CentCell, iSparseStart)
-          ! La salida es qOrb(:,:,iSpin) que contiene todas las cargas 
 
  
       enddo
-
-!      end do
-!
-!
 
       #:else
   
@@ -2299,7 +2260,7 @@ contains
     complex(dp), allocatable :: T4(:,:)
     integer :: iSpin, iOrb, iOrb2, iKS, iK
     type(TFileDescr) :: fillingsIn
-    integer :: nLocalCols, nLocalRows
+    integer :: nLocalCols, nLocalRows, i, j
    
     allocate(rhoPrim(size(ints%hamiltonian, dim=1), this%nSpin))
     allocate(ErhoPrim(size(ints%hamiltonian, dim=1)))
@@ -2307,11 +2268,7 @@ contains
     allocate(ham0(size(H0)))
     ham0(:) = H0
 
-    ! implement nLocalRows and nLocalCols in the same way as
-    ! in initializeDynamics
-    ! (get them from size())
-
-    !   New allocation Block :   
+      
     #:if WITH_SCALAPACK
       nLocalRows = size(eigvecsReal, dim=1)
       nLocalCols = size(eigvecsReal, dim=2)
@@ -2321,52 +2278,36 @@ contains
     #:endif    
 
     if (this%tRealHS) then
-!      allocate(T2(this%nOrbs,this%nOrbs))
-!      allocate(T3(this%nOrbs, this%nOrbs))
       allocate(T2(nLocalRows,nLocalCols))
       allocate(T3(nLocalRows,nLocalCols))
 
     else
-!      allocate(T4(this%nOrbs, this%nOrbs))
       allocate(T4(nLocalRows,nLocalCols))
     end if
-
- 
-
-    ! if scalapack
-    !call unpackHSRealBlacs(env%blacs, ints%overlap, iNeighbour,&
-    ! & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T2)
-    
-    !else
     
     if (.not. this%tReadRestart) then
       Ssqr(:,:,:) = 0.0_dp
       Sinv(:,:,:) = 0.0_dp
-      ! ACA with_scalapack 
+
     #:if WITH_SCALAPACK
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
           call  unpackHSRealBlacs(env%blacs, ints%overlap, iNeighbour,&
            & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T2)
-         ! Not calling blockSymmetrizeHS, unpackHSRealBlacs is symmetric
-          Ssqr(:,:,iKS) = cmplx(T2, 0, dp)
-          
-          ! See how to do inversion with Scalapack; looks that doesn't need I
-          ! psymmatinv is defined in math/scalafxext.F90
-          ! subroutine psymmatinv(desc, aa, status, uplo)
-          ! desc = Matrix descriptor ; aa= Matrix to invert on entry, inverted matrix on exit
-          ! status = Status flag
-          ! uplo = Whether upper or lower triangle is specified in the matrix ("U" or "L", default: "L")
-          ! I think we need to blockSymmetrizeHS (for blacs)
-          ! Option : blockSymmetrizeHS(rhoL, denseDesc%iAtomStart)
-          
-          ! para las multiplicaciones vamos a usar pblasfx_psymm de main.F90 de la subrutina 
-          ! getEDensityMtxFromRealEigvecs
 
-!          call psymmatinv(this%denseDesc, T2, errStatus)   <-- Original  
-          call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)          
- 
+           Ssqr(:,:,iKS) = cmplx(T2, 0, dp)
+          
+          call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus, uplo="U")  
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
+
+          write(*, *) "from psymmatinv"
+            do i =1,2 
+              do j=1,2
+              write(*, *) i,j,Sinv(i,j,:)
+              !write(*, *) i,j,Ssqr(i,j, :)
+              enddo
+            enddo
+
         else
           !call error("MPI for Electron dynamics only for finit systems") 
 
@@ -2387,6 +2328,15 @@ contains
           end do
           call gesv(T2, T3)
           Sinv(:,:,iKS) = cmplx(T3, 0, dp)
+
+          write(*, *) "from inv OP"
+          do i =1,2 
+            do j=1,2
+            write(*, *) i,j,Sinv(i,j,:)
+            !write(*, *) i,j,Ssqr(i,j, :)
+            enddo
+          enddo
+
         else
           iK = this%parallelKS%localKS(1, iKS)
           iSpin = this%parallelKS%localKS(2, iKS)
@@ -2679,30 +2629,6 @@ endif
     T1(:,:) = 0.0_dp
     T2(:,:) = 0.0_dp
 
-    !old matmul:
-!    call gemm(T1, Sinv, H1)
-!    call gemm(rhoOld, T1, rho, cmplx(-step, 0, dp), cmplx(1, 0, dp))
-!    call gemm(rhoOld, rho, T1, cmplx(-step, 0, dp), cmplx(1, 0, dp), 'N', 'C')
-    !Exmple with Blacs:
-    !     call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-    ! & T3R, this%denseDesc%blacsOrbSqr)   
-    !subroutine gemm_dblecmplx(C,A,B,alpha,beta,transA,transB,n,m,k) 
-    !C := alpha*op( A )*op( B ) + beta*C
-    !for psymm: y := alpha*A*x + beta*y,
-    !from intel : dsymv(uplo, n, alpha, a, lda, x, incx, beta, y, incy)
-    
-    !ptrasn sub(C):=beta*sub(C) + alpha*sub(A)'
-
-    ! Correct force for XLBOMD for T <> 0K (DHS^-1 + S^-1HD)
-!    call pblasfx_psymm(Sinv, this%denseDesc%blacsOrbSqr, H1, this%denseDesc%blacsOrbSqr,&
-!    & T1, this%denseDesc%blacsOrbSqr, side="L")
-!    call pblasfx_psymm(rho, this%denseDesc%blacsOrbSqr, T1,&
-!    & this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr, alpha= cmplx(-step, 0, dp))
-!    T1 = T2
-!    call pblasfx_ptran(T2, this%denseDesc%blacsOrbSqr, T1, this%denseDesc%blacsOrbSqr, alpha=1.0_dp,&
-!    & beta=1.0_dp)
-
-!    rhoOld = rhoOld + T1
 
   end subroutine propagateRhoBlacs
 
@@ -2734,13 +2660,6 @@ endif
     
     integer :: nLocalCols, nLocalRows
 
-    !ORIGINAL ALLOCATION
-    !allocate(T1R(this%nOrbs,this%nOrbs))
-    !allocate(T2R(this%nOrbs,this%nOrbs))
-    !allocate(T3R(this%nOrbs,this%nOrbs))
-    !allocate(T4R(this%nOrbs,this%nOrbs))
-    !
-    !NEW ALLOCATION 
     nLocalRows = size(rho, dim=1)
     nLocalCols = size(rho, dim=2)
     allocate(T1R(nLocalRows,nLocalCols))
@@ -2755,21 +2674,12 @@ endif
     T2R(:,:) = real(H1)
     T1R(:,:) = real(rho)
 
-!   old call
-!    call gemm(T3R,T2R,T1R)
-!   Example of scalapack call:
-!    call pblasfx_psymm(work2, denseDesc%blacsOrbSqr, work, denseDesc%blacsOrbSqr,&
-!    & eigvecsReal(:,:,iKS), denseDesc%blacsOrbSqr, side="L")
-
-!    OLD call:
-!    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-!        & T3R, this%denseDesc%blacsOrbSqr)    
     call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
         & T3R, this%denseDesc%blacsOrbSqr, side="L")    
 
     T2R(:,:) = T3R  
     T1R(:,:) = real(Sinv)
- 
+
     call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
         & T3R, this%denseDesc%blacsOrbSqr, side="R")    
    ! T3R real(rho)HSinv
@@ -2829,6 +2739,8 @@ endif
 
     real(dp), allocatable :: T1R(:,:), T2R(:,:), T3R(:,:),T4R(:,:)
 
+    integer :: i, j
+
     allocate(T1R(this%nOrbs,this%nOrbs))
     allocate(T2R(this%nOrbs,this%nOrbs))
     allocate(T3R(this%nOrbs,this%nOrbs))
@@ -2840,6 +2752,7 @@ endif
     ! get the real part of Sinv and H1
     T1R(:,:) = real(H1)
     T2R(:,:) = real(Sinv)
+
     call gemm(T3R,T2R,T1R)
     T2R(:,:) = T3R
 
@@ -4438,20 +4351,6 @@ endif
     call TMultipole_init(this%multipole, this%nAtom, this%nDipole, this%nQuadrupole, &
         & this%nSpin)
 
-    ! allocate differently if scalapack
-    ! check allocateDenseMatrices(this, env) in initprogram
-!    nLocalKS = size(this%parallelKS%localKS, dim=2)
-!  #:if WITH_SCALAPACK
-!    get local shape from shape(eigvecsReal) nLocalRows, nLocalCols
-!    nLocalRows = algo
-!    nLocalCols = algo2
-!  #:else
-!    nLocalRows = this%denseDesc%fullSize
-!    nLocalCols = this%denseDesc%fullSize
-!  #:endif
-
-
-!   New allocation Block :   
     #:if WITH_SCALAPACK
       nLocalRows = size(eigvecsReal, dim=1)
       nLocalCols = size(eigvecsReal, dim=2)
