@@ -2714,12 +2714,12 @@ endif
 ! =================        
   ! T4R = 0.0_dp
 
-      !   write(*, *) "Real(Rho * H1 * Sinv) pblasfx_psymm"
-      !   do i =1,2 
-      !     do j=1,2
-      !       write(*, *) i,j,T3R(i,j)
-      !     enddo
-      !   enddo
+        write(*, *) "Real(Rho * H1 * Sinv) pblasfx_psymm"
+        do i =1,2 
+          do j=1,2
+            write(*, *) i,j,T3R(i,j)
+          enddo
+        enddo
   
       ! call gemm(T4R,T2R,T1R)
   
@@ -2749,14 +2749,14 @@ endif
         & T4R, this%denseDesc%blacsOrbSqr, side="L")    
 
 ! =================        
-      !   write(*, *) "Imag(Rho * H1 * Sinv) pblasfx_psymm"
-      !   do i =1,2 
-      !     do j=1,2
-      !       write(*, *) i,j,T4R(i,j)
-      !     enddo
-      !   enddo
+        write(*, *) "Imag(Rho * H1 * Sinv) pblasfx_psymm"
+        do i =1,2 
+          do j=1,2
+            write(*, *) i,j,T4R(i,j)
+          enddo
+        enddo
   
-      ! call gemm(T5R,T2R,T1R)
+      call gemm(T5R,T2R,T1R)
   
       ! write(*, *) "Imag(Rho * H1 * Sinv) gemm"
       !   do i =1,2 
@@ -2790,12 +2790,15 @@ endif
       !   enddo
 ! =================  
 
-    write(*, *) "(Rho_old)"
-    do i =1,2 
-      do j=1,2
-        write(*, *) i,j,rhoOld(i,j)
-      enddo
-    enddo
+! =================
+! (rhoOld)
+    ! write(*, *) "(Rho_old)"
+    ! do i =1,2 
+    !   do j=1,2
+    !     write(*, *) i,j,rhoOld(i,j)
+    !   enddo
+    ! enddo
+! =================
 
     ! build the commutator combining the real and imaginary parts of the previous result
 
@@ -2803,6 +2806,11 @@ endif
     rhoOld(:,:) = rhoOld + cmplx(0, -step, dp) * (T3R + imag * T4R)&
         & + cmplx(0, step, dp) * (T1R - imag * T2R)
     !$OMP END WORKSHARE
+
+    ! !$OMP WORKSHARE
+    ! rhoOld(:,:) = rhoOld + cmplx(0, -step, dp) * (T3R - imag * T4R)&
+    !     & - cmplx(0, step, dp) * (T1R - imag * T2R)
+    ! !$OMP END WORKSHARE
 
          
     deallocate(T1R)
@@ -2834,7 +2842,7 @@ endif
     !> Time step in atomic units
     real(dp), intent(in) :: step
 
-    real(dp), allocatable :: T1R(:,:), T2R(:,:), T3R(:,:),T4R(:,:)
+    real(dp), allocatable :: T1R(:,:), T2R(:,:), T3R(:,:),T4R(:,:), T5R(:,:), T6R(:,:)
 
     integer :: i, j
 
@@ -2842,6 +2850,8 @@ endif
     allocate(T2R(this%nOrbs,this%nOrbs))
     allocate(T3R(this%nOrbs,this%nOrbs))
     allocate(T4R(this%nOrbs,this%nOrbs))
+    allocate(T5R(this%nOrbs,this%nOrbs))
+
 
     ! The code below takes into account that Sinv and H1 are real, this is twice as fast as the
     ! original above (propageteRho)
@@ -2860,28 +2870,31 @@ endif
     T1R(:,:) = aimag(rho)
     call gemm(T4R,T2R,T1R)
 
-    ! =================  
-  !   write(*, *) "Real(Sinv * H1 * Rho) "
-  !   do i =1,2 
-  !     do j=1,2
-  !       write(*, *) i,j,T3R(i,j)
-  !     enddo
-  !   enddo
-
-  ! write(*, *) "iamg(Sinv * H1 * Rho) "
-  !   do i =1,2 
-  !     do j=1,2
-  !       write(*, *) i,j,T4R(i,j)
-  !     enddo
-    ! enddo
-    ! =================  
-
-    write(*, *) "(Rho_old)"
+   ! =================  
+    write(*, *) "TRANS Real(Sinv * H1 * Rho) "
     do i =1,2 
       do j=1,2
-        write(*, *) i,j,rhoOld(i,j)
+        T6R = transpose(T3R)
+
+        write(*, *) i,j,T6R(i,j)
       enddo
     enddo
+
+  write(*, *) "TRANS iamg(Sinv * H1 * Rho) "
+    do i =1,2 
+      do j=1,2
+        T5R = transpose(T4R)
+      write(*, *) i,j,T5R(i,j)
+      enddo
+    enddo
+!    =================  
+
+    ! write(*, *) "(Rho_old)"
+    ! do i =1,2 
+    !   do j=1,2
+    !     write(*, *) i,j,rhoOld(i,j)
+    !   enddo
+    ! enddo
 
     ! build the commutator combining the real and imaginary parts of the previous result
     !$OMP WORKSHARE
