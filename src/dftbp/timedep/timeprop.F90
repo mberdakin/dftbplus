@@ -2681,9 +2681,10 @@ endif
     ! get the real part of Sinv and H1
     T2R(:,:) = real(H1)
     T1R(:,:) = real(rho)
-
-    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
-        & T3R, this%denseDesc%blacsOrbSqr, side="L")    
+    call gemm(T3R,T1R,T2R)
+    
+    ! call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+    !     & T3R, this%denseDesc%blacsOrbSqr, side="L")    
 
 ! ===============
         write(*, *) "(H1) pblasfx_psymm"
@@ -2712,20 +2713,21 @@ endif
     !    & T3R, this%denseDesc%blacsOrbSqr, side="R")    
 
     ! Call ALTERNATIVO
-    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-        & T3R, this%denseDesc%blacsOrbSqr)    
+    ! call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+    !     & T3R, this%denseDesc%blacsOrbSqr)    
 
+    call gemm(T3R,T2R,T1R)
 
     ! T3R real(rho)HSinv
 
 ! =================        
  
-        write(*, *) "Real(Rho * H1 * Sinv) pblasfx_psymm"
-        do i =1,2 
-          do j=1,2
-            write(*, *) i,j,T3R(i,j)
-          enddo
-        enddo
+        ! write(*, *) "Real(Rho * H1 * Sinv) pblasfx_psymm"
+        ! do i =1,2 
+        !   do j=1,2
+        !     write(*, *) i,j,T3R(i,j)
+        !   enddo
+        ! enddo
   
       !  call gemm(T5R,T2R,T1R)
   
@@ -2739,35 +2741,37 @@ endif
   
     T1R(:,:) = aimag(rho)
     T2R(:,:) = real(H1)
+    call gemm(T4R,T1R,T2R)
 
-    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
-    & T4R, this%denseDesc%blacsOrbSqr, side="L")    
+    ! call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+    ! & T4R, this%denseDesc%blacsOrbSqr, side="L")    
     
     T2R(:,:) = T4R  
     T1R(:,:) = real(Sinv)
-    
-    write(*, *) "Imag(Rho * H1 ) pblasfx_psymm"
-    do i =1,2 
-      do j=1,2
-        write(*, *) i,j,T4R(i,j)
-      enddo
-    enddo
+    call gemm(T4R,T2R,T1R)
+   
+    ! write(*, *) "Imag(Rho * H1 ) pblasfx_psymm"
+    ! do i =1,2 
+    !   do j=1,2
+    !     write(*, *) i,j,T4R(i,j)
+    !   enddo
+    ! enddo
 
     ! call original: 
 !    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
 !        & T4R, this%denseDesc%blacsOrbSqr, side="R")    
  
       !Call alternativo
-    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
-        & T4R, this%denseDesc%blacsOrbSqr)    
+    ! call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+    !     & T4R, this%denseDesc%blacsOrbSqr)    
 
 ! =================        
-        write(*, *) "Imag(Rho * H1 * Sinv) pblasfx_psymm"
-        do i =1,2 
-          do j=1,2
-            write(*, *) i,j,T4R(i,j)
-          enddo
-        enddo
+        ! write(*, *) "Imag(Rho * H1 * Sinv) pblasfx_psymm"
+        ! do i =1,2 
+        !   do j=1,2
+        !     write(*, *) i,j,T4R(i,j)
+        !   enddo
+        ! enddo
   
       ! call gemm(T5R,T2R,T1R)
   
@@ -2782,10 +2786,10 @@ endif
 
    ! T4R= imag(rho)HSinv
 
-    !call pblasfx_ptran(T3R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr)
-        T1R = transpose(T3R)
-    !call pblasfx_ptran(T4R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr)
-        T2R = transpose(T4R)
+    call pblasfx_ptran(T3R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr)
+    !    T1R = transpose(T3R)
+    call pblasfx_ptran(T4R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr)
+    !    T2R = transpose(T4R)
 ! =================  
       !   write(*, *) "Real(Rho * H1 * Sinv)TRANS "
       !   do i =1,2 
@@ -2805,12 +2809,12 @@ endif
 
 ! =================
 ! (rhoOld)
-    write(*, *) "(Rho_old)"
-    do i =1,2 
-      do j=1,2
-        write(*, *) i,j,rhoOld(i,j)
-      enddo
-    enddo
+    ! write(*, *) "(Rho_old)"
+    ! do i =1,2 
+    !   do j=1,2
+    !     write(*, *) i,j,rhoOld(i,j)
+    !   enddo
+    ! enddo
 ! =================
 
     ! build the commutator combining the real and imaginary parts of the previous result
