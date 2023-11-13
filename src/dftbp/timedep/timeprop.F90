@@ -2307,12 +2307,12 @@ contains
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)  
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
 
-          write(*, *) "WARNING -- Sinv symm a mano"
-            do i =1,2 
-              do j=i,2
-                Sinv(i,j,iks) = Sinv(j,i,iks) 
-              enddo
-            enddo
+          ! write(*, *) "WARNING -- Sinv symm a mano"
+          !   do i =1,2 
+          !     do j=i,2
+          !       Sinv(i,j,iks) = Sinv(j,i,iks) 
+          !     enddo
+          !   enddo
 
         else
           !call error("MPI for Electron dynamics only for finit systems") 
@@ -2681,18 +2681,19 @@ endif
     ! get the real part of Sinv and H1
     T2R(:,:) = real(H1)
     T1R(:,:) = real(rho)
-    call gemm(T3R,T1R,T2R)
     
-    ! call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
-    !     & T3R, this%denseDesc%blacsOrbSqr, side="L")    
+    !call gemm(T3R,T1R,T2R)
+    
+    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+         & T3R, this%denseDesc%blacsOrbSqr, side="R")    
 
 ! ===============
-        write(*, *) "(H1) pblasfx_psymm"
-        do i =1,2 
-          do j=1,2
-            write(*, *) i,j,H1(i,j)
-          enddo
-        enddo
+        ! write(*, *) "(H1) pblasfx_psymm"
+        ! do i =1,2 
+        !   do j=1,2
+        !     write(*, *) i,j,H1(i,j)
+        !   enddo
+        ! enddo
   
       ! call gemm(T4R,T1R,T2R)
   
@@ -2709,14 +2710,14 @@ endif
 
 
     ! Call ORIGINAL 
-    ! call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
-    !    & T3R, this%denseDesc%blacsOrbSqr, side="R")    
+    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+       & T3R, this%denseDesc%blacsOrbSqr, side="R")    
 
     ! Call ALTERNATIVO
     ! call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
     !     & T3R, this%denseDesc%blacsOrbSqr)    
 
-    call gemm(T3R,T2R,T1R)
+!    call gemm(T3R,T2R,T1R)
 
     ! T3R real(rho)HSinv
 
@@ -2741,14 +2742,14 @@ endif
   
     T1R(:,:) = aimag(rho)
     T2R(:,:) = real(H1)
-    call gemm(T4R,T1R,T2R)
+!    call gemm(T4R,T1R,T2R)
 
-    ! call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
-    ! & T4R, this%denseDesc%blacsOrbSqr, side="L")    
+    call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
+    & T4R, this%denseDesc%blacsOrbSqr, side="R")    
     
     T2R(:,:) = T4R  
     T1R(:,:) = real(Sinv)
-    call gemm(T4R,T2R,T1R)
+!    call gemm(T4R,T2R,T1R)
    
     ! write(*, *) "Imag(Rho * H1 ) pblasfx_psymm"
     ! do i =1,2 
@@ -2758,8 +2759,8 @@ endif
     ! enddo
 
     ! call original: 
-!    call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
-!        & T4R, this%denseDesc%blacsOrbSqr, side="R")    
+   call pblasfx_psymm(T1R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr,&
+       & T4R, this%denseDesc%blacsOrbSqr, side="R")    
  
       !Call alternativo
     ! call pblasfx_psymm(T2R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr,&
