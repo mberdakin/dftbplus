@@ -5018,22 +5018,24 @@ endif
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout) :: this
+    !WARNING : Matias comment these lines:
 
-    call closeTDOutputs(this%dipoleDat, this%qDat, this%energyDat, this%populDat,&
-        & this%forceDat, this%coorDat, this%fdBondPopul, this%fdBondEnergy, this%atomEnergyDat)
+!    call closeTDOutputs(this%dipoleDat, this%qDat, this%energyDat, this%populDat,&
+!        & this%forceDat, this%coorDat, this%fdBondPopul, this%fdBondEnergy, this%atomEnergyDat)
 
-    deallocate(this%Ssqr)
-    deallocate(this%Sinv)
-    deallocate(this%H1)
+    !WARNING : Matias comment these lines:
+    !deallocate(this%Ssqr)
+    !deallocate(this%Sinv)
+    !deallocate(this%H1)
     deallocate(this%RdotSprime)
     deallocate(this%qq)
     deallocate(this%deltaQ)
     deallocate(this%dipole)
     deallocate(this%chargePerShell)
     deallocate(this%occ)
-    deallocate(this%totalForce)
-    deallocate(this%trho)
-    deallocate(this%trhoOld)
+    deallocate(this%totalForce)    
+    !deallocate(this%trho)
+    !deallocate(this%trhoOld)
     if (allocated(this%Dsqr)) then
       deallocate(this%Dsqr)
     end if
