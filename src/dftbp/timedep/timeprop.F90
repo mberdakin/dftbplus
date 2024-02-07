@@ -1358,7 +1358,7 @@ contains
           & this%occ, this%lastBondPopul, taggedWriter)
     end if
 
-    call finalizeDynamics(this)
+  !  call finalizeDynamics(this)
 
   end subroutine doDynamics
 
@@ -1843,20 +1843,11 @@ contains
 
         call mpifx_allreduceip(env%mpi%globalComm, this%rhoPrim, MPI_SUM)
 
-      !do iSpin = 1, this%nSpin
-      ! call mulliken(env, qq(:,:,iSpin), ints%overlap, this%rhoPrim(:,iSpin), orb, iNeighbour,&
-      !  & nNeighbourSK, img2CentCell, iSparseStart)
-      !enddo
+      do iSpin = 1, this%nSpin
+       call mulliken(env, qq(:,:,iSpin), ints%overlap, this%rhoPrim(:,iSpin), orb, iNeighbour,&
+        & nNeighbourSK, img2CentCell, iSparseStart)
+      enddo
 
-        do iSpin = 1, this%nSpin
-          do iAt = 1, this%nAtom
-            iOrb1 = iSquare(iAt)
-            iOrb2 = iSquare(iAt+1)-1
-            ! hermitian transpose used as real part only is needed
-            qq(:iOrb2-iOrb1+1,iAt,iSpin) = real(sum(&
-                & rho(:,iOrb1:iOrb2,iSpin)*Ssqr(:,iOrb1:iOrb2,iSpin), dim=1), dp)
-          end do
-        end do      
 
       #:else
   
@@ -2100,7 +2091,7 @@ contains
     !> Error status
     type(TStatus), intent(inout) :: errStatus
 
-    real(dp), allocatable :: qiBlock(:,:,:,:) ! never allocated
+    real(dp), allocatable :: qiBlock(:,:,:,:), tmp(:,:)
     integer :: iKS, iK, iSpin
     real(dp) :: TS(this%nSpin)
     type(TReksCalc), allocatable :: reks ! never allocated
@@ -2109,11 +2100,23 @@ contains
     ! check allways that calcEnergy is called AFTER getForces
     if (.not. this%tForces) then
       rhoPrim(:,:) = 0.0_dp
+
+      
       do iKS = 1, this%parallelKS%nLocalKS
-        iSpin = this%parallelKS%localKS(2, iKS)
+        iSpin = this%parallelKS%localKS(2, iKS)        
         if (this%tRealHS) then
+          #:if WITH_SCALAPACK 
+          allocate(tmp (size(rho,dim=1),size(rho,dim=2)))
+            tmp = real(rho(:,:,iSpin), dp)
+            call packRhoRealBlacs(env%blacs, this%denseDesc, tmp, neighbourlist%iNeighbour, nNeighbourSK,&
+            & orb%mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
+          deallocate(tmp)
+
+          #:else
           call packHS(rhoPrim(:,iSpin), real(rho(:,:,iSpin), dp), neighbourlist%iNeighbour,&
               & nNeighbourSK, orb%mOrb, iSquare, iSparseStart, img2CentCell)
+          #:endif 
+
         else
           iK = this%parallelKS%localKS(1, iKS)
           call packHS(rhoPrim(:,iSpin), rho(:,:,iKS), this%kPoint(:,iK), this%kWeight(iK),&
@@ -2121,6 +2124,10 @@ contains
               & iSquare, iSparseStart, img2CentCell)
         end if
       end do
+
+      #:if WITH_SCALAPACK 
+      call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
+      #:endif 
     end if
     call ud2qm(rhoPrim)
 
@@ -2437,11 +2444,11 @@ contains
         else
           call makeDensityMatrix(rho(:,:,iKS), eigvecsCplx(:,:,iKS), filling(:,iK,iSpin))
         end if
-        do iOrb = 1, this%nOrbs-1
-          do iOrb2 = iOrb+1, this%nOrbs
-            rho(iOrb, iOrb2, iKS) = conjg(rho(iOrb2, iOrb, iKS))
-          end do
-        end do
+        ! do iOrb = 1, this%nOrbs-1
+        !   do iOrb2 = iOrb+1, this%nOrbs
+        !     rho(iOrb, iOrb2, iKS) = conjg(rho(iOrb2, iOrb, iKS))
+        !   end do
+        ! end do
       end do
     end if
 
@@ -3569,6 +3576,8 @@ endif
       allocate(Sreal(this%nOrbs,this%nOrbs))
       allocate(SinvReal(this%nOrbs,this%nOrbs))
       Sreal = 0.0_dp
+
+      !! WARNING
       call unpackHS(Sreal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK, iSquare,&
           & iSparseStart, img2CentCell)
       call adjointLowerTriangle(Sreal)
