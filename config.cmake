@@ -9,7 +9,7 @@
 
 option(WITH_OMP "Whether OpenMP thread parallisation should be enabled" TRUE)
 
-option(WITH_MPI "Whether DFTB+ should support MPI-parallelism" TRUE)
+option(WITH_MPI "Whether DFTB+ should support MPI-parallelism" FALSE)
 # If you build an MPI-parallised binary, consider to set WITH_OMP (OpenMP thread parallelisaton) to
 # FALSE unless you want hybrid parallelisation (for experts only).
 
