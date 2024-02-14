@@ -2155,7 +2155,7 @@ contains
   !> Create all necessary matrices and instances for dynamics
   subroutine initializeTDVariables(this, rho, H1, Ssqr, Sinv, H0, ham0, Dsqr, Qsqr, ints,&
       & eigvecsReal, filling, orb, rhoPrim, potential, iNeighbour, nNeighbourSK, iSquare,&
-      & iSparseStart, img2CentCell, Eiginv, EiginvAdj, energy, ErhoPrim, skOverCont, qBlock,&
+      & iSparseStart, img2CentCell, Eiginv, EiginvAdj, energy, ErhoPrim, qBlock,&
       & qNetAtom, isDftbU, onSiteElements, eigvecsCplx, H1LC, bondWork, fdBondEnergy, fdBondPopul,&
       & lastBondPopul, time, env, errStatus)
 
@@ -2538,9 +2538,6 @@ endif
 
     !> Image atoms to their equivalent in the central cell
     integer, intent(in) :: img2CentCell(:)
-
-    !> Range separation contributions
-    type(TRangeSepFunc), allocatable, intent(inout) :: rangeSep
 
     integer :: iKS
     complex(dp), allocatable :: RdotSprime(:,:)
