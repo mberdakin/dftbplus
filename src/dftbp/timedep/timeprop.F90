@@ -2439,16 +2439,21 @@ contains
           T2(:,:) = 0.0_dp
           call makeDensityMatrix(T2, eigvecsReal(:,:,iKS), filling(:,1,iSpin))
           rho(:,:,iKS) = cmplx(T2, 0, dp)
+          do iOrb = 1, this%nOrbs-1
+            do iOrb2 = iOrb+1, this%nOrbs
+              rho(iOrb, iOrb2, iKS) = conjg(rho(iOrb2, iOrb, iKS))
+            end do
+          end do
           #:endif
 
         else
           call makeDensityMatrix(rho(:,:,iKS), eigvecsCplx(:,:,iKS), filling(:,iK,iSpin))
+          do iOrb = 1, this%nOrbs-1
+            do iOrb2 = iOrb+1, this%nOrbs
+              rho(iOrb, iOrb2, iKS) = conjg(rho(iOrb2, iOrb, iKS))
+            end do
+          end do
         end if
-        ! do iOrb = 1, this%nOrbs-1
-        !   do iOrb2 = iOrb+1, this%nOrbs
-        !     rho(iOrb, iOrb2, iKS) = conjg(rho(iOrb2, iOrb, iKS))
-        !   end do
-        ! end do
       end do
     end if
 
