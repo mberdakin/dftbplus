@@ -873,10 +873,10 @@ contains
     sizePrim = size(primitive)
   #:endblock DEBUG_CODE
 
-!    @:ASSERT(nAtom > 0)
-!    @:ASSERT(size(square, dim=1) == size(square, dim=2))
-!    @:ASSERT(size(square, dim=1) == iAtomStart(nAtom+1) - 1)
-!    @:ASSERT(all(shape(nNeighbourSK) == [nAtom]))
+    @:ASSERT(nAtom > 0)
+    @:ASSERT(size(square, dim=1) == size(square, dim=2))
+    @:ASSERT(size(square, dim=1) == iAtomStart(nAtom+1) - 1)
+    @:ASSERT(all(shape(nNeighbourSK) == [nAtom]))
 
     do iAtom1 = 1, nAtom
       ii = iAtomStart(iAtom1)

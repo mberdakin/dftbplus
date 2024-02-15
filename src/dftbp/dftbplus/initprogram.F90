@@ -3854,9 +3854,13 @@ contains
         call error("Electron dynamics is not compatibile with this spinor Hamiltonian")
       end if
 
-!      if (withMpi) then
-!        call error("Electron dynamics does not work with MPI yet")
-!      end if
+      if (input%ctrl%elecDynInp%tIons .and. withMPI) then
+        call error("Ion dynamics time propagation does not work with MPI yet")
+      end if
+
+      if (.not. this%tRealHS .and. withMpi) then
+        call error("Electron dynamics of periodic systems does not work with MPI yet")
+      end if
 
       if (this%tFixEf) then
         call error("Electron dynamics does not work with fixed Fermi levels yet")
