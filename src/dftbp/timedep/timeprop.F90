@@ -3099,8 +3099,16 @@ contains
     complex(dp), allocatable :: T2(:,:), T3(:,:)
     integer :: iOrb
 
+    ! TODO: cambiar diagonalización with scalapack en updateBasisMatrices
+    ! Definir ncols y rows 
+
+    !Alocateo general 
     allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
 
+    ! #:if WITH_SCALAPACK 
+    ! Armar copiando de initTDvaribles 
+
+    ! #:else
     if (this%tRealHS) then
       T2 = cmplx(eigvecsReal, 0, dp)
     else
@@ -3127,6 +3135,7 @@ contains
     call gesv(T2,T3)
     EiginvAdj(:,:) = T3
 
+    !Desalocateo general
     deallocate(T2, T3)
 
   end subroutine tdPopulInit
