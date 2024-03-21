@@ -2360,9 +2360,9 @@ contains
       allocate(EiginvAdj(this%nOrbs, this%nOrbs, this%parallelKS%nLocalKS))
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
-          call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS), eigvecsReal(:,:,iKS))
+          call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS),errStatus, eigvecsReal(:,:,iKS))
         else
-          call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS), &
+          call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS), errStatus, &
               & eigvecsCplx=eigvecsCplx(:,:,iKS))
         end if
       end do
@@ -3079,7 +3079,7 @@ contains
 
   !> Initialize matrices for populations
   !! Note, this will need to get generalised for complex eigenvectors
-  subroutine tdPopulInit(this, Eiginv, EiginvAdj, eigvecsReal, eigvecsCplx)
+  subroutine tdPopulInit(this, Eiginv, EiginvAdj,errStatus, eigvecsReal, eigvecsCplx)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(in) :: this
@@ -3095,20 +3095,72 @@ contains
 
     !> Complex Eigevenctors
     complex(dp), intent(in), optional :: eigvecsCplx(:,:)
+    
+    !> Error status
+    type(TStatus), intent(out) :: errStatus
 
-    complex(dp), allocatable :: T2(:,:), T3(:,:)
+    complex(dp), allocatable :: T2(:,:), T2_C(:,:), T3(:,:)
+    real(dp), allocatable :: T2_R(:,:)
+
     integer :: iOrb
 
-    ! TODO: cambiar diagonalización with scalapack en updateBasisMatrices
-    ! Definir ncols y rows 
+    integer :: nLocalCols, nLocalRows
 
-    !Alocateo general 
-    allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
+!    allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
 
-    ! #:if WITH_SCALAPACK 
-    ! Armar copiando de initTDvaribles 
+#:if WITH_SCALAPACK
+    nLocalRows = size(eigvecsReal, dim=1)
+    nLocalCols = size(eigvecsReal, dim=2)
+#:else
+    nLocalRows = this%denseDesc%fullSize
+    nLocalCols = this%denseDesc%fullSize
+#:endif
+    allocate(T2(nLocalRows,nLocalCols))
+    allocate(T2_R(nLocalRows,nLocalCols))
+    allocate(T2_C(nLocalRows,nLocalCols))
+    allocate(T3(nLocalRows,nLocalCols))
 
-    ! #:else
+#: if WITH_SCALAPACK
+    if (this%tRealHS) then
+      !T2 = cmplx(eigvecsReal, 0, dp)
+      T2_R = eigvecsReal
+
+    else
+      !T2 = eigvecsCplx ! CONSIDERING ONLY REAL H 
+      CONTINUE
+    end if
+
+    ! Here T3 can be deleted 
+    T3 = 0.0_dp
+    do iOrb = 1, this%nOrbs
+      T3(iOrb, iOrb) = 1.0_dp
+    end do
+    !call gesv(T2,T3) --> Equivalent with Blacs 
+    
+    call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
+    T2_C = cmplx(T2_R, 0, dp) ! Make complex after inversion
+
+    Eiginv(:,:) = T2_C 
+
+    if (this%tRealHS) then
+      !T2 = cmplx(transpose(eigvecsReal), 0, dp)
+      call pblasfx_ptran(eigvecsReal, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
+    else
+      !T2 = conjg(transpose(eigvecsCplx))
+    end if
+
+    ! Here T3 can be deleted
+    T3 = 0.0_dp
+    do iOrb = 1, this%nOrbs
+      T3(iOrb, iOrb) = 1.0_dp
+    end do
+    !call gesv(T2,T3) --> Equivalent with Blacs 
+    call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
+    T2_C = cmplx(T2_R, 0, dp)
+
+    EiginvAdj(:,:) = T2_C
+
+#:else 
     if (this%tRealHS) then
       T2 = cmplx(eigvecsReal, 0, dp)
     else
@@ -3134,9 +3186,9 @@ contains
     end do
     call gesv(T2,T3)
     EiginvAdj(:,:) = T3
+#:endif
 
-    !Desalocateo general
-    deallocate(T2, T3)
+    deallocate(T2, T2_R, T2_C, T3)
 
   end subroutine tdPopulInit
 
@@ -3190,9 +3242,9 @@ contains
       @:PROPAGATE_ERROR(errStatus)
       if (this%tRealHS) then
         T2(:,:) = real(T1, dp)
-        call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS), T2)
+        call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS), errStatus,T2 )
       else
-        call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS), eigvecsCplx=T1)
+        call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS),errStatus, eigvecsCplx=T1)
       end if
     end do
     deallocate(T1, T2)
@@ -3228,11 +3280,60 @@ contains
     real(dp), intent(inout) :: occ(:)
 
     !> Auxiliary matrix
-    complex(dp) :: T1(this%nOrbs,this%nOrbs)
+    complex(dp), allocatable :: T1(:,:), T11(:,:), T2(:,:)
 
-    integer :: ii
+!    complex(dp) :: T1(this%nOrbs,this%nOrbs)
+    integer :: nLocalCols, nLocalRows, ii
+    real(dp), allocatable :: T1_R(:,:), T2_R(:,:), T3_R(:,:)
 
-    call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
+
+#:if WITH_SCALAPACK
+    nLocalRows = size(Eiginv, dim=1)
+    nLocalCols = size(Eiginv, dim=2)
+#:else
+    nLocalRows = this%denseDesc%fullSize
+    nLocalCols = this%denseDesc%fullSize
+#:endif
+    allocate(T1(nLocalRows,nLocalCols))
+    allocate(T11(nLocalRows,nLocalCols))
+    allocate(T2(nLocalRows,nLocalCols))
+
+    allocate(T1_R(nLocalRows,nLocalCols))
+    allocate(T2_R(nLocalRows,nLocalCols))
+    allocate(T3_R(nLocalRows,nLocalCols))
+
+
+#:if WITH_SCALAPACK
+
+!    call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
+!    T1 = transpose(Eiginv(:,:,iKS)) * T1
+
+if (this%tRealHS) then
+
+    T1_R(:,:) = real(EiginvAdj(:,:,iKS))
+    T2_R(:,:) = real(rho(:,:,iKS))    
+    
+
+    call pblasfx_psymm(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
+    & T3_R, this%denseDesc%blacsOrbSqr, side="R")
+
+    T1_R(:,:) = real(Eiginv(:,:,iKS))
+    call pblasfx_ptran(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
+
+    call pblasfx_psymm(T3_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
+    & T1_R, this%denseDesc%blacsOrbSqr, side="R")
+endif
+
+
+    occ = real(sum(T1_R,dim=1), dp)
+    write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
+    do ii = 1, size(occ)
+      write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
+    end do
+    write(populDat(iKS)%unit,*)
+
+#:else
+  call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
     T1 = transpose(Eiginv(:,:,iKS)) * T1
 
     occ = real(sum(T1,dim=1), dp)
@@ -3241,6 +3342,8 @@ contains
       write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
     end do
     write(populDat(iKS)%unit,*)
+
+#:endif
 
   end subroutine getTDPopulations
 
