@@ -3324,13 +3324,38 @@ if (this%tRealHS) then
     & T1_R, this%denseDesc%blacsOrbSqr, side="R")
 endif
 
+!T1_R entrada 
+!T2_R Salida
+!!! Pensé que tenía que modificar el pack en esa fuc. nueva escribí algunas falopas 
+!!! que creo que no sirven 
 
-    occ = real(sum(T1_R,dim=1), dp)
-    write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
-    do ii = 1, size(occ)
-      write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
-    end do
-    write(populDat(iKS)%unit,*)
+!call packMOBlacs_local(env%blacs, this%denseDesc, T1_R, neighbourlist%iNeighbour, nNeighbourSK,&
+!  & orb%mOrb, iSparseStart, img2CentCell, T2_R)
+
+
+!!! Finalmente, creo que lo que hay que hacer es simplemente seguir el ejemplo del packRho :
+
+!call packRhoRealBlacs(env%blacs, this%denseDesc, tmp, iNeighbour, nNeighbourSK,&
+!& orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
+!call mpifx_allreduceip(env%mpi%globalComm, this%rhoPrim, MPI_SUM)
+
+! Sería : 
+!call packRhoRealBlacs(env%blacs, this%denseDesc, T1_R, iNeighbour, nNeighbourSK,&
+!  & orb%mOrb, iSparseStart, img2CentCell, T2_R)
+
+!call mpifx_allreduceip(env%mpi%globalComm, T2_R, MPI_SUM)
+!(external/mpifx/origin/lib/mpifx_allreduce)
+
+!Aquí T2_R ya debería ser la matriz "completa"? si es así, podemos escribir:
+
+
+
+!    occ = real(sum(T2_R,dim=1), dp)
+!    write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
+!    do ii = 1, size(occ)
+!      write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
+!    end do
+!    write(populDat(iKS)%unit,*)
 
 #:else
   call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
@@ -4945,5 +4970,107 @@ endif
     end if
 
   end subroutine finalizeDynamics
+
+
+!   subroutine packMOBlacs_local(myBlacs, desc, square, iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
+!     & img2CentCell, primitive)
+
+!   !> BLACS matrix descriptor
+!   type(TBlacsEnv), intent(in) :: myBlacs
+
+!   !> Dense matrix description
+!   type(TDenseDescr), intent(in) :: desc
+
+!   !> distributed dense matrix to pack
+!   real(dp), intent(in) :: square(:, :)
+
+!   !> Neighbour list for the atoms (First index from 0!)
+!   integer, intent(in) :: iNeighbour(0:, :)
+
+!   !> Nr. of neighbours for the atoms.
+!   integer, intent(in) :: nNeighbourSK(:)
+
+!   !> Maximal number of orbitals on an atom.
+!   integer, intent(in) :: mOrb
+
+!   !> indexing array for the sparse Hamiltonian
+!   integer, intent(in) :: iSparseStart(0:, :)
+
+!   !> Mapping between image atoms and corresponding atom in the central cell.
+!   integer, intent(in) :: img2CentCell(:)
+
+!   !> sparse matrix to add this contribution into
+!   real(dp), intent(inout) :: primitive(:)
+
+!   integer :: nAtom
+!   integer :: iOrig, ii, jj, kk
+!   integer :: iNeigh
+!   integer :: iAtom1, iAtom2, iAtom2f
+!   integer :: nOrb1, nOrb2
+!   real(dp) :: tmpSqr(mOrb, mOrb)
+!   integer :: sizePrim
+! # 2498 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+
+!   nAtom = size(iNeighbour, dim=2)
+!   sizePrim = size(primitive)
+! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+! if (.not. (nAtom > 0)) then
+! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!   block
+! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!     use dftbp_common_assert, only : assertError
+! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!     call assertError("/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90", 2503)
+! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!   end block
+! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+! end if
+! if (.not. (size(nNeighbourSK) == nAtom)) then
+! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!   block
+! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!     use dftbp_common_assert, only : assertError
+! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!     call assertError("/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90", 2504)
+! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+!   end block
+! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+! end if
+
+! ! Aquí iría la propuesta de la que hablamos el otro día. Pero no la veo. 
+! ! Esta rutina está armada para "sparcear" una densa. Por construcción necesitas
+! ! un conjunto de dos átomos. 
+
+! ! Propongo otra cosa, sería algo como :
+! ! usamos el primer do, tenemos ii y nOrb1 y se los mandamos directamente 
+! ! a scalafx_infog2l (external/scalapaclfx/origin/lib/scalapackfx.fpp)
+! ! Creo que de esa func deberíamos 
+
+!   do iAtom1 = 1, nAtom 
+!     ii = desc%iAtomStart(iAtom1)             !Elemento diagonal 
+!     nOrb1 = desc%iAtomStart(iAtom1 + 1) - ii ! Con sus nOrbs
+!     do iNeigh = 0, nNeighbourSK(iAtom1)
+!       iOrig = iSparseStart(iNeigh, iAtom1) + 1
+!       iAtom2 = iNeighbour(iNeigh, iAtom1)
+!       iAtom2f = img2CentCell(iAtom2)
+!       jj = desc%iAtomStart(iAtom2f)
+!       nOrb2 = desc%iAtomStart(iAtom2f + 1) - jj
+!       call scalafx_cpg2l(myBlacs%orbitalGrid, desc%blacsOrbSqr, jj, ii, square,&
+!           & tmpSqr(1:nOrb2, 1:nOrb1))
+
+!       ! Symmetrize the on-site block before packing, just in case
+!       if (iAtom1 == iAtom2f) then
+!         do kk = 1, nOrb2
+!           tmpSqr(kk, kk+1:nOrb1) = tmpSqr(kk + 1 : nOrb1, kk)
+!         end do
+!       end if
+
+!       primitive(iOrig : iOrig + nOrb1 * nOrb2 - 1) =&
+!           & primitive(iOrig : iOrig + nOrb1 * nOrb2 - 1)&
+!           & + reshape(tmpSqr(1:nOrb2, 1:nOrb1), [nOrb1 * nOrb2])
+!     end do
+!   end do
+
+! end subroutine packMOBlacs_local
 
 end module dftbp_timedep_timeprop
