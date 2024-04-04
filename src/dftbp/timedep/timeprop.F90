@@ -3326,36 +3326,48 @@ endif
 
 !T1_R entrada 
 !T2_R Salida
-!!! Pensé que tenía que modificar el pack en esa fuc. nueva escribí algunas falopas 
-!!! que creo que no sirven 
-
-!call packMOBlacs_local(env%blacs, this%denseDesc, T1_R, neighbourlist%iNeighbour, nNeighbourSK,&
-!  & orb%mOrb, iSparseStart, img2CentCell, T2_R)
+!T2_R Not good. Hace falta una del tamaño de rhoPrim 
 
 
-!!! Finalmente, creo que lo que hay que hacer es simplemente seguir el ejemplo del packRho :
-
-!call packRhoRealBlacs(env%blacs, this%denseDesc, tmp, iNeighbour, nNeighbourSK,&
-!& orb%mOrb, iSparseStart, img2CentCell, this%rhoPrim(:,iSpin))
-!call mpifx_allreduceip(env%mpi%globalComm, this%rhoPrim, MPI_SUM)
-
-! Sería : 
+! Paso 1 : densa a sparse 
 !call packRhoRealBlacs(env%blacs, this%denseDesc, T1_R, iNeighbour, nNeighbourSK,&
 !  & orb%mOrb, iSparseStart, img2CentCell, T2_R)
 
+! Paso 2 : sparese dist a sparese no dist
 !call mpifx_allreduceip(env%mpi%globalComm, T2_R, MPI_SUM)
-!(external/mpifx/origin/lib/mpifx_allreduce)
 
 !Aquí T2_R ya debería ser la matriz "completa"? si es así, podemos escribir:
 
 
+allocated(array_MO(orb%mOrb:orb%mOrb))
+allocated(occ(orb%mOrb))
 
-!    occ = real(sum(T2_R,dim=1), dp)
-!    write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
-!    do ii = 1, size(occ)
-!      write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
-!    end do
-!    write(populDat(iKS)%unit,*)
+do iAtom1 = 1, nAtom
+  ii = iAtomStart(iAtom1)
+  nOrb1 = iAtomStart(iAtom1 + 1) - ii
+  iNeigh = 0
+    iOrig = iSparseStart(iNeigh, iAtom1) + 1
+
+    array_MO(ii:ii+nOrb1-1, ii:ii+nOrb1-1) = array_MO(ii:ii+nOrbi-1, ii:ii+nOrb1-1)&
+        & + reshape(orig(iOrig:iOrig+nOrb1*nOrb1-1), [nOrb1, nOrb1])
+  
+
+  do jj = 1, orb%nOrb1
+
+    occ(ii+jj-1) =  array_MO(jj,jj)
+  
+  end do
+
+end do
+
+! Trae occ  y se escribe a archivo : 
+
+write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
+do ii = 1, size(occ)
+  write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
+end do
+write(populDat(iKS)%unit,*)
+
 
 #:else
   call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
