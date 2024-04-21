@@ -3253,7 +3253,9 @@ contains
 
 
   !> Calculate populations at each time step
-  subroutine getTDPopulations(this, occ, rho, Eiginv, EiginvAdj, populDat, time, iKS)
+  subroutine getTDPopulations(this, occ, rho, Eiginv, EiginvAdj, populDat, time, iKS, &
+    & iNeighbour, nNeighbourSK, mOrb, iSparseStart, img2CentCell, &
+    & rhoPrim, env )
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(in) :: this
@@ -3281,6 +3283,27 @@ contains
 
     !> Auxiliary matrix
     complex(dp), allocatable :: T1(:,:), T11(:,:), T2(:,:)
+
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
+
+    !> Neighbour list for the atoms (First index from 0!)
+    integer, intent(in) :: iNeighbour(0:, :)
+
+    !> Nr. of neighbours for the atoms.
+    integer, intent(in) :: nNeighbourSK(:)
+
+    !> Maximal number of orbitals on an atom.
+    integer, intent(in) :: mOrb
+
+    !> indexing array for the sparse Hamiltonian
+    integer, intent(in) :: iSparseStart(0:, :)
+
+    !> Mapping between image atoms and corresponding atom in the central cell.
+    integer, intent(in) :: img2CentCell(:)
+   
+    !> Sparse density matrix
+    real(dp), allocatable, intent(inout) :: rhoPrim(:,:)
 
 !    complex(dp) :: T1(this%nOrbs,this%nOrbs)
     integer :: nLocalCols, nLocalRows, ii
@@ -3324,43 +3347,12 @@ if (this%tRealHS) then
     & T1_R, this%denseDesc%blacsOrbSqr, side="R")
 endif
 
-!T1_R entrada 
-!T2_R Salida
-!T2_R Not good. Hace falta una del tamaño de rhoPrim 
+  ! Call unpack and reduce distributed populations 
 
+  call unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
+  & img2CentCell, T1_R, rhoPrim, env, occ, this, iKS, this%denseDesc)
 
-! Paso 1 : densa a sparse 
-!call packRhoRealBlacs(env%blacs, this%denseDesc, T1_R, iNeighbour, nNeighbourSK,&
-!  & orb%mOrb, iSparseStart, img2CentCell, T2_R)
-
-! Paso 2 : sparese dist a sparese no dist
-!call mpifx_allreduceip(env%mpi%globalComm, T2_R, MPI_SUM)
-
-!Aquí T2_R ya debería ser la matriz "completa"? si es así, podemos escribir:
-
-
-allocated(array_MO(orb%mOrb:orb%mOrb))
-allocated(occ(orb%mOrb))
-
-do iAtom1 = 1, nAtom
-  ii = iAtomStart(iAtom1)
-  nOrb1 = iAtomStart(iAtom1 + 1) - ii
-  iNeigh = 0
-    iOrig = iSparseStart(iNeigh, iAtom1) + 1
-
-    array_MO(ii:ii+nOrb1-1, ii:ii+nOrb1-1) = array_MO(ii:ii+nOrbi-1, ii:ii+nOrb1-1)&
-        & + reshape(orig(iOrig:iOrig+nOrb1*nOrb1-1), [nOrb1, nOrb1])
-  
-
-  do jj = 1, orb%nOrb1
-
-    occ(ii+jj-1) =  array_MO(jj,jj)
-  
-  end do
-
-end do
-
-! Trae occ  y se escribe a archivo : 
+  ! Trae occ  y se escribe a archivo : 
 
 write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
 do ii = 1, size(occ)
@@ -4840,7 +4832,9 @@ write(populDat(iKS)%unit,*)
         ! TODO: fix tests values for populations so that it becomes exactly syncronized with the
         ! other outputs
         call getTDPopulations(this, this%occ, this%rho, this%Eiginv, this%EiginvAdj, this%populDat,&
-            & this%time-this%dt, iKS)
+            & this%time-this%dt, iKS, &
+            & neighbourList%iNeighbour, nNeighbourSK, orb%mOrb, iSparseStart, img2CentCell, &
+            & this%rhoPrim, env)
       end do
     end if
 
@@ -4984,105 +4978,78 @@ write(populDat(iKS)%unit,*)
   end subroutine finalizeDynamics
 
 
-!   subroutine packMOBlacs_local(myBlacs, desc, square, iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
-!     & img2CentCell, primitive)
+subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
+     & img2CentCell, T1_R, rhoPrim, env, occ, this, iKS, desc)
 
-!   !> BLACS matrix descriptor
-!   type(TBlacsEnv), intent(in) :: myBlacs
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
 
-!   !> Dense matrix description
-!   type(TDenseDescr), intent(in) :: desc
+    !> Neighbour list for the atoms (First index from 0!)
+    integer, intent(in) :: iNeighbour(0:, :)
 
-!   !> distributed dense matrix to pack
-!   real(dp), intent(in) :: square(:, :)
+    !> Nr. of neighbours for the atoms.
+    integer, intent(in) :: nNeighbourSK(:)
 
-!   !> Neighbour list for the atoms (First index from 0!)
-!   integer, intent(in) :: iNeighbour(0:, :)
+    !> Maximal number of orbitals on an atom.
+    integer, intent(in) :: mOrb
 
-!   !> Nr. of neighbours for the atoms.
-!   integer, intent(in) :: nNeighbourSK(:)
+    !> indexing array for the sparse Hamiltonian
+    integer, intent(in) :: iSparseStart(0:, :)
 
-!   !> Maximal number of orbitals on an atom.
-!   integer, intent(in) :: mOrb
+    !> Mapping between image atoms and corresponding atom in the central cell.
+    integer, intent(in) :: img2CentCell(:)
 
-!   !> indexing array for the sparse Hamiltonian
-!   integer, intent(in) :: iSparseStart(0:, :)
+    !> ElecDynamics instance
+    type(TElecDynamics), intent(in) :: this
 
-!   !> Mapping between image atoms and corresponding atom in the central cell.
-!   integer, intent(in) :: img2CentCell(:)
+    !> Sparse density matrix
+    real(dp), allocatable, intent(inout) :: rhoPrim(:,:)
 
-!   !> sparse matrix to add this contribution into
-!   real(dp), intent(inout) :: primitive(:)
+    !> K-Spin mixed index
+    integer, intent(in) :: iKS
 
-!   integer :: nAtom
-!   integer :: iOrig, ii, jj, kk
-!   integer :: iNeigh
-!   integer :: iAtom1, iAtom2, iAtom2f
-!   integer :: nOrb1, nOrb2
-!   real(dp) :: tmpSqr(mOrb, mOrb)
-!   integer :: sizePrim
-! # 2498 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
+    !> Molecular orbital occupations
+    real(dp), intent(inout) :: occ(:)
 
-!   nAtom = size(iNeighbour, dim=2)
-!   sizePrim = size(primitive)
-! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-! if (.not. (nAtom > 0)) then
-! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!   block
-! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!     use dftbp_common_assert, only : assertError
-! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!     call assertError("/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90", 2503)
-! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!   end block
-! # 2503 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-! end if
-! if (.not. (size(nNeighbourSK) == nAtom)) then
-! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!   block
-! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!     use dftbp_common_assert, only : assertError
-! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!     call assertError("/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90", 2504)
-! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-!   end block
-! # 2504 "/home/matias/Documents/GitHub/proyecto_MPI/dftbplus/src/dftbp/dftb/sparse2dense.F90"
-! end if
+    !> Dense matrix description
+    type(TDenseDescr), intent(in) :: desc
 
-! ! Aquí iría la propuesta de la que hablamos el otro día. Pero no la veo. 
-! ! Esta rutina está armada para "sparcear" una densa. Por construcción necesitas
-! ! un conjunto de dos átomos. 
+    real(dp), intent(in) :: T1_R(:,:)
 
-! ! Propongo otra cosa, sería algo como :
-! ! usamos el primer do, tenemos ii y nOrb1 y se los mandamos directamente 
-! ! a scalafx_infog2l (external/scalapaclfx/origin/lib/scalapackfx.fpp)
-! ! Creo que de esa func deberíamos 
+    real(dp), allocatable :: popSparse(:)
+    real(dp), allocatable :: array_MO(:,:)
+    integer :: iNeigh, iSpin, iOrb1, iOrig, nOrb1, iK, ii
+    integer :: dim, iAtom1, jj
 
-!   do iAtom1 = 1, nAtom 
-!     ii = desc%iAtomStart(iAtom1)             !Elemento diagonal 
-!     nOrb1 = desc%iAtomStart(iAtom1 + 1) - ii ! Con sus nOrbs
-!     do iNeigh = 0, nNeighbourSK(iAtom1)
-!       iOrig = iSparseStart(iNeigh, iAtom1) + 1
-!       iAtom2 = iNeighbour(iNeigh, iAtom1)
-!       iAtom2f = img2CentCell(iAtom2)
-!       jj = desc%iAtomStart(iAtom2f)
-!       nOrb2 = desc%iAtomStart(iAtom2f + 1) - jj
-!       call scalafx_cpg2l(myBlacs%orbitalGrid, desc%blacsOrbSqr, jj, ii, square,&
-!           & tmpSqr(1:nOrb2, 1:nOrb1))
+    dim = size(rhoPrim, dim=1)
+    allocate(popSparse(dim))
+    allocate(array_MO(mOrb,mOrb))
+    
+    !1. densa to sparese sparse 
+    call packRhoRealBlacs(env%blacs, this%denseDesc, T1_R, iNeighbour, nNeighbourSK,&
+      & mOrb, iSparseStart, img2CentCell, popSparse)
 
-!       ! Symmetrize the on-site block before packing, just in case
-!       if (iAtom1 == iAtom2f) then
-!         do kk = 1, nOrb2
-!           tmpSqr(kk, kk+1:nOrb1) = tmpSqr(kk + 1 : nOrb1, kk)
-!         end do
-!       end if
+    !2. distributed sparese to no distributed sparese 
+    call mpifx_allreduceip(env%mpi%globalComm, popSparse, MPI_SUM)
 
-!       primitive(iOrig : iOrig + nOrb1 * nOrb2 - 1) =&
-!           & primitive(iOrig : iOrig + nOrb1 * nOrb2 - 1)&
-!           & + reshape(tmpSqr(1:nOrb2, 1:nOrb1), [nOrb1 * nOrb2])
-!     end do
-!   end do
+!Aquí popSparse ya debería ser la matriz "completa" si es así, podemos escribir:
 
-! end subroutine packMOBlacs_local
+    do iAtom1 = 1, this%nAtom
+      ii = desc%iAtomStart(iAtom1)
+      nOrb1 = desc%iAtomStart(iAtom1 ) - ii !!! OJO originalmente era iAtom1+1
+      iNeigh = 0
+        iOrig = iSparseStart(iNeigh, iAtom1) + 1
+
+        array_MO(ii:ii+nOrb1-1, ii:ii+nOrb1-1) = array_MO(ii:ii+nOrb1-1, ii:ii+nOrb1-1)&
+            & + reshape(popSparse(iOrig:iOrig+nOrb1*nOrb1-1), [nOrb1, nOrb1])
+
+      do jj = 1, nOrb1
+
+        occ(ii+jj-1) =  array_MO(jj,jj)
+      
+      end do
+    end do
+
+end subroutine unpackTDpopulBlacs
 
 end module dftbp_timedep_timeprop
