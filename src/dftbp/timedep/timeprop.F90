@@ -67,7 +67,7 @@ module dftbp_timedep_timeprop
   use dftbp_reks_reks, only : TReksCalc
   use dftbp_solvation_solvation, only : TSolvation
   use dftbp_solvation_fieldscaling, only : TScaleExtEField
-  use dftbp_timedep_dynamicsrestart, only : writeRestartFile, readRestartFile
+  use dftbp_timedep_dynamicsrestart, only : writeRestartFile, readRestartFile, writeRestartFileSparse, readRestartFileSparse
   use dftbp_type_commontypes, only : TParallelKS, TOrbitals
   use dftbp_type_densedescr, only: TDenseDescr
   use dftbp_type_integral, only : TIntegral
@@ -4451,8 +4451,14 @@ write(populDat(iKS)%unit,*)
     this%occ(:) = 0.0_dp
 
     if (this%tReadRestart) then
+#:if WITH_SCALAPACK
       call readRestartFile(this%trho, this%trhoOld, coord, this%movedVelo, this%startTime, this%dt,&
           & restartFileName, this%tRestartAscii, errStatus)
+#:else
+      call readRestartFileSparse(this%trho, this%trhoOld, this%rhoPrim, coord, velInternal, this%time, this%dt,&
+          & restartFileName, env, this%denseDesc, neighbourList%iNeighbour, nNeighbourSK, iSparseStart,&
+          & img2CentCell, this%tRealHS, errStatus)
+#:endif
       @:PROPAGATE_ERROR(errStatus)
       call updateH0S(this, boundaryCond, this%Ssqr, this%Sinv, coord, orb, neighbourList,&
           & nNeighbourSK, iSquare, iSparseStart, img2CentCell, skHamCont, skOverCont, this%ham0,&
@@ -4852,8 +4858,14 @@ write(populDat(iKS)%unit,*)
       else
         velInternal(:,:) = 0.0_dp
       end if
+#:if WITH_SCALAPACK
+      call writeRestartFileSparse(this%rho, this%rhoOld, this%rhoPrim, coord, velInternal, this%time, this%dt,&
+          & restartFileName, env, this%denseDesc, neighbourList%iNeighbour, nNeighbourSK, orb%mOrb, iSparseStart,&
+          & img2CentCell, this%tRealHS, errStatus)
+#:else
       call writeRestartFile(this%rho, this%rhoOld, coord, velInternal, this%time, this%dt, &
           &restartFileName, this%tWriteRestartAscii, errStatus)
+#:endif
       @:PROPAGATE_ERROR(errStatus)
       deallocate(velInternal)
     end if
