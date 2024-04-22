@@ -3306,7 +3306,7 @@ contains
     real(dp), allocatable, intent(inout) :: rhoPrim(:,:)
 
 !    complex(dp) :: T1(this%nOrbs,this%nOrbs)
-    integer :: nLocalCols, nLocalRows, ii
+    integer :: nLocalCols, nLocalRows, ii, i
     real(dp), allocatable :: T1_R(:,:), T2_R(:,:), T3_R(:,:)
 
 
@@ -3347,6 +3347,13 @@ if (this%tRealHS) then
     & T1_R, this%denseDesc%blacsOrbSqr, side="R")
 endif
 
+  !###
+  write(*,*)
+  write(*,*) time * au__fs
+  do i = 1, nLocalCols
+    write(*,*) T1_R(i,i)
+  enddo
+  !### 
   ! Call unpack and reduce distributed populations 
 
   call unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
@@ -5048,11 +5055,11 @@ subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
 
     do iAtom1 = 1, this%nAtom
       ii = desc%iAtomStart(iAtom1)
-      nOrb1 = desc%iAtomStart(iAtom1 ) - ii !!! OJO originalmente era iAtom1+1
+      nOrb1 = desc%iAtomStart(iAtom1+1) - ii 
       iNeigh = 0
         iOrig = iSparseStart(iNeigh, iAtom1) + 1
 
-        array_MO(ii:ii+nOrb1-1, ii:ii+nOrb1-1) = array_MO(ii:ii+nOrb1-1, ii:ii+nOrb1-1)&
+        array_MO(1:nOrb1, 1:nOrb1) = array_MO(1:nOrb1, 1:nOrb1)&
             & + reshape(popSparse(iOrig:iOrig+nOrb1*nOrb1-1), [nOrb1, nOrb1])
 
       do jj = 1, nOrb1
