@@ -329,9 +329,8 @@ contains
     allocate(rhoPrimOld(size(rhoPrim, dim=1), size(rhoPrim, dim=2)))
 
     ! Set to stream explicitely, as it was written as stream from the beginning
-    call openFile(fd, file=trim(fileName)//'.bin',&
-        & options=TOpenOptions(form='unformatted', access='stream', action='read',&
-        & position="rewind"), iostat=iErr)
+    call openFile(fd, trim(fileName) // '.bin',&
+        & options=TOpenOptions(form='unformatted', access='stream', action='write'), iostat=iErr)
 
     if (tRealHS) then
       do iSpin = 1, size(rhoPrim, dim=2)
