@@ -77,7 +77,7 @@ module dftbp_timedep_timeprop
   use dftbp_dftb_densitymatrix, only : makeDensityMtxRealBlacs
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs, packRhoRealBlacs
   use dftbp_dftb_populations, only : mulliken
-  use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran
+  use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran, pblasfx_pgemm
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
 #:endif
@@ -3296,6 +3296,7 @@ contains
 !    complex(dp) :: T1(this%nOrbs,this%nOrbs)
     integer :: nLocalCols, nLocalRows, ii, i
     real(dp), allocatable :: T1_R(:,:), T2_R(:,:), T3_R(:,:)
+    complex(dp), allocatable :: T1_C(:,:), T3_C(:,:)
 
     !! EIGENS ESTÁN dist? me parece que no 
 
@@ -3313,6 +3314,8 @@ contains
     allocate(T1_R(nLocalRows,nLocalCols))
     allocate(T2_R(nLocalRows,nLocalCols))
     allocate(T3_R(nLocalRows,nLocalCols))
+    allocate(T1_C(nLocalRows,nLocalCols))
+    allocate(T3_C(nLocalRows,nLocalCols))
 
 
 #:if WITH_SCALAPACK
@@ -3322,34 +3325,42 @@ contains
 
 if (this%tRealHS) then
 
-    T1_R(:,:) = real(EiginvAdj(:,:,iKS))
-    T2_R(:,:) = real(rho(:,:,iKS))    
+!    T1_R(:,:) = real(EiginvAdj(:,:,iKS))
+!    T2_R(:,:) = real(rho(:,:,iKS))    
     
 
-    call pblasfx_psymm(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
-    & T3_R, this%denseDesc%blacsOrbSqr, side="R")
+!    call pblasfx_psymm(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
+!    & T3_R, this%denseDesc%blacsOrbSqr, side="R")
 
-    T1_R(:,:) = real(Eiginv(:,:,iKS))
-    call pblasfx_ptran(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
+!    T1_R(:,:) = real(Eiginv(:,:,iKS))
+!    call pblasfx_ptran(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
 
-    call pblasfx_psymm(T3_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
-    & T1_R, this%denseDesc%blacsOrbSqr, side="R")
+!    call pblasfx_psymm(T3_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
+!    & T1_R, this%denseDesc%blacsOrbSqr, side="R")
 
-    !call pblasfx_psymm(T2_R, this%denseDesc%blacsOrbSqr, T3_R, this%denseDesc%blacsOrbSqr,&
-    !& T1_R, this%denseDesc%blacsOrbSqr, side="L")
+!!! Matrix mult with pgemm !!! 
+
+    call pblasfx_pgemm(rho(:,:,iKS), this%denseDesc%blacsOrbSqr, EiginvAdj(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+    & T3_C, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
+! T3_C = rho*EiginvAdj
+    call pblasfx_pgemm(Eiginv(:,:,iKS), this%denseDesc%blacsOrbSqr, T3_C, this%denseDesc%blacsOrbSqr,&
+    & T1_C, this%denseDesc%blacsOrbSqr, transa="T", transb="N")
+! T1_C = Trans(Eiginv)*rho*EiginvAdj
+
 endif
 
   !###
   write(*,*)
   write(*,*) time * au__fs
   do i = 1, nLocalCols
-    write(*,*) T1_R(i,i)
+    write(*,*) T1_C(i,i)
   enddo
+  
   !### 
   ! Call unpack and reduce distributed populations 
 
   call unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
-  & img2CentCell, T1_R, rhoPrim, env, occ, this, iKS, this%denseDesc)
+  & img2CentCell, real(T1_C), rhoPrim, env, occ, this, iKS, this%denseDesc)
 
   ! Trae occ  y se escribe a archivo : 
 
