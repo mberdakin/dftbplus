@@ -3130,31 +3130,19 @@ contains
       CONTINUE
     end if
 
-    ! Here T3 can be deleted 
-    T3 = 0.0_dp
-    do iOrb = 1, this%nOrbs
-      T3(iOrb, iOrb) = 1.0_dp
-    end do
-    !call gesv(T2,T3) --> Equivalent with Blacs 
-    
-    call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
+      call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
     T2_C = cmplx(T2_R, 0, dp) ! Make complex after inversion
 
     Eiginv(:,:) = T2_C 
 
     if (this%tRealHS) then
       !T2 = cmplx(transpose(eigvecsReal), 0, dp)
+      T2_R = eigvecsReal
       call pblasfx_ptran(eigvecsReal, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
     else
       !T2 = conjg(transpose(eigvecsCplx))
     end if
 
-    ! Here T3 can be deleted
-    T3 = 0.0_dp
-    do iOrb = 1, this%nOrbs
-      T3(iOrb, iOrb) = 1.0_dp
-    end do
-    !call gesv(T2,T3) --> Equivalent with Blacs 
     call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
     T2_C = cmplx(T2_R, 0, dp)
 
@@ -3309,6 +3297,7 @@ contains
     integer :: nLocalCols, nLocalRows, ii, i
     real(dp), allocatable :: T1_R(:,:), T2_R(:,:), T3_R(:,:)
 
+    !! EIGENS ESTÁN dist? me parece que no 
 
 #:if WITH_SCALAPACK
     nLocalRows = size(Eiginv, dim=1)
@@ -3345,6 +3334,9 @@ if (this%tRealHS) then
 
     call pblasfx_psymm(T3_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
     & T1_R, this%denseDesc%blacsOrbSqr, side="R")
+
+    !call pblasfx_psymm(T2_R, this%denseDesc%blacsOrbSqr, T3_R, this%denseDesc%blacsOrbSqr,&
+    !& T1_R, this%denseDesc%blacsOrbSqr, side="L")
 endif
 
   !###
