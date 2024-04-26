@@ -14,9 +14,11 @@ module dftbp_timedep_dynamicsrestart
   use dftbp_common_environment, only : TEnvironment
   use dftbp_common_file, only : TFileDescr, TOpenOptions, openFile, closeFile
   use dftbp_common_status, only : TStatus
+  #:if WITH_SCALAPACK
   use dftbp_dftb_sparse2dense, only: packRhoRealBlacs, unpackHSRealBlacs
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_type_densedescr, only: TDenseDescr
+  #:endif
   implicit none
 
   !> Version number for restart format, please increment if you change the file format (and consider
@@ -24,8 +26,11 @@ module dftbp_timedep_dynamicsrestart
   integer, parameter :: iDumpFormat = 1
 
   private
-  public :: writeRestartFile, readRestartFile, writeRestartFileSparse, readRestartFileSparse
-
+  public :: writeRestartFile, readRestartFile
+  #:if WITH_SCALAPACK
+  public :: writeRestartFileSparse, readRestartFileSparse
+  #:endif
+  
 contains
 
   !> Write to a restart file.
@@ -265,7 +270,7 @@ contains
 
   end subroutine readRestartFile
 
-
+  #:if WITH_SCALAPACK
   !> Write to a restart file the DM in sparse format (only should be used if the square DM does not fit in memory, i.e. with MPI)
   subroutine writeRestartFileSparse(rho, rhoOld, rhoPrim, coord, veloc, time, dt, fileName, env, &
       & denseDesc, iNeighbour, nNeighbourSK, mOrb, iSparseStart, img2CentCell, tRealHS, errStatus)
@@ -476,6 +481,6 @@ contains
     deallocate(rhoPrimOld, T1)
 
   end subroutine readRestartFileSparse
-
+  #:endif
 
 end module dftbp_timedep_dynamicsrestart

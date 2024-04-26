@@ -67,7 +67,7 @@ module dftbp_timedep_timeprop
   use dftbp_reks_reks, only : TReksCalc
   use dftbp_solvation_solvation, only : TSolvation
   use dftbp_solvation_fieldscaling, only : TScaleExtEField
-  use dftbp_timedep_dynamicsrestart, only : writeRestartFile, readRestartFile, writeRestartFileSparse, readRestartFileSparse
+  use dftbp_timedep_dynamicsrestart, only : writeRestartFile, readRestartFile
   use dftbp_type_commontypes, only : TParallelKS, TOrbitals
   use dftbp_type_densedescr, only: TDenseDescr
   use dftbp_type_integral, only : TIntegral
@@ -80,6 +80,8 @@ module dftbp_timedep_timeprop
   use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran, pblasfx_pgemm
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
+  use dftbp_timedep_dynamicsrestart, only : writeRestartFileSparse, readRestartFileSparse
+
 #:endif
 #:if WITH_MBD
   use dftbp_dftb_dispmbd, only : TDispMbd
@@ -3115,6 +3117,7 @@ contains
     nLocalRows = this%denseDesc%fullSize
     nLocalCols = this%denseDesc%fullSize
 #:endif
+
     allocate(T2(nLocalRows,nLocalCols))
     allocate(T2_R(nLocalRows,nLocalCols))
     allocate(T2_C(nLocalRows,nLocalCols))
@@ -3137,7 +3140,7 @@ contains
 
     if (this%tRealHS) then
       !T2 = cmplx(transpose(eigvecsReal), 0, dp)
-      T2_R = eigvecsReal
+      
       call pblasfx_ptran(eigvecsReal, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
     else
       !T2 = conjg(transpose(eigvecsCplx))
@@ -3344,18 +3347,28 @@ if (this%tRealHS) then
     & T3_C, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
 ! T3_C = rho*EiginvAdj
     call pblasfx_pgemm(Eiginv(:,:,iKS), this%denseDesc%blacsOrbSqr, T3_C, this%denseDesc%blacsOrbSqr,&
-    & T1_C, this%denseDesc%blacsOrbSqr, transa="T", transb="N")
+    & T1_C, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
 ! T1_C = Trans(Eiginv)*rho*EiginvAdj
 
 endif
 
   !###
-  write(*,*)
+  write(*,*) 
+  write(*,*) "Diag T1C"
   write(*,*) time * au__fs
   do i = 1, nLocalCols
     write(*,*) T1_C(i,i)
   enddo
   
+  write(*,*) 
+  write(*,*) "Diag EiginvAdj"
+  write(*,*) time * au__fs
+  do i = 1, nLocalCols
+    write(*,*) EiginvAdj(i,i,iKS)
+  enddo
+
+  ! ### 
+
   !### 
   ! Call unpack and reduce distributed populations 
 
@@ -3374,6 +3387,15 @@ write(populDat(iKS)%unit,*)
 #:else
   call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
     T1 = transpose(Eiginv(:,:,iKS)) * T1
+
+    ! ###
+    write(*,*) 
+    write(*,*) "Diag EiginvAdj"
+    write(*,*) time * au__fs
+    do i = 1, nLocalCols
+      write(*,*) EiginvAdj(i,i,iKS)
+    enddo
+  ! ###
 
     occ = real(sum(T1,dim=1), dp)
     write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
@@ -4462,12 +4484,12 @@ write(populDat(iKS)%unit,*)
 
     if (this%tReadRestart) then
 #:if WITH_SCALAPACK
-      call readRestartFile(this%trho, this%trhoOld, coord, this%movedVelo, this%startTime, this%dt,&
-          & restartFileName, this%tRestartAscii, errStatus)
-#:else
       call readRestartFileSparse(this%trho, this%trhoOld, this%rhoPrim, coord, velInternal, this%time, this%dt,&
-          & restartFileName, env, this%denseDesc, neighbourList%iNeighbour, nNeighbourSK, iSparseStart,&
-          & img2CentCell, this%tRealHS, errStatus)
+      & restartFileName, env, this%denseDesc, neighbourList%iNeighbour, nNeighbourSK, iSparseStart,&
+      & img2CentCell, this%tRealHS, errStatus)
+#:else
+      call readRestartFile(this%trho, this%trhoOld, coord, this%movedVelo, this%startTime, this%dt,&
+      & restartFileName, this%tRestartAscii, errStatus)
 #:endif
       @:PROPAGATE_ERROR(errStatus)
       call updateH0S(this, boundaryCond, this%Ssqr, this%Sinv, coord, orb, neighbourList,&
@@ -4999,7 +5021,7 @@ write(populDat(iKS)%unit,*)
 
   end subroutine finalizeDynamics
 
-
+#:if WITH_SCALAPACK
 subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
      & img2CentCell, T1_R, rhoPrim, env, occ, this, iKS, desc)
 
@@ -5073,5 +5095,6 @@ subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
     end do
 
 end subroutine unpackTDpopulBlacs
+#:endif
 
 end module dftbp_timedep_timeprop
