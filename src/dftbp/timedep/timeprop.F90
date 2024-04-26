@@ -2358,8 +2358,8 @@ contains
     end if
 
     if (this%tPopulations) then
-      allocate(Eiginv(this%nOrbs, this%nOrbs, this%parallelKS%nLocalKS))
-      allocate(EiginvAdj(this%nOrbs, this%nOrbs, this%parallelKS%nLocalKS))
+      allocate(Eiginv(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
+      allocate(EiginvAdj(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
           call tdPopulInit(this, Eiginv(:,:,iKS), EiginvAdj(:,:,iKS),errStatus, eigvecsReal(:,:,iKS))
@@ -3106,7 +3106,7 @@ contains
 
     integer :: iOrb
 
-    integer :: nLocalCols, nLocalRows
+    integer :: nLocalCols, nLocalRows, i
 
 !    allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
 
@@ -3128,12 +3128,9 @@ contains
       !T2 = cmplx(eigvecsReal, 0, dp)
       T2_R = eigvecsReal
 
-    else
-      !T2 = eigvecsCplx ! CONSIDERING ONLY REAL H 
-      CONTINUE
     end if
 
-      call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
+    call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
     T2_C = cmplx(T2_R, 0, dp) ! Make complex after inversion
 
     Eiginv(:,:) = T2_C 
@@ -3180,6 +3177,13 @@ contains
 #:endif
 
     deallocate(T2, T2_R, T2_C, T3)
+
+    !!!!!!!!!!!!!!!!!!!!!!!!!!
+    write(*,*) 
+    write(*,*) "Diag EigeigvecsReal"
+    do i = 1, nLocalCols
+      write(*,*) eigvecsReal(i,i)
+    enddo
 
   end subroutine tdPopulInit
 
@@ -3360,12 +3364,6 @@ endif
     write(*,*) T1_C(i,i)
   enddo
   
-  write(*,*) 
-  write(*,*) "Diag EiginvAdj"
-  write(*,*) time * au__fs
-  do i = 1, nLocalCols
-    write(*,*) EiginvAdj(i,i,iKS)
-  enddo
 
   ! ### 
 
@@ -3387,15 +3385,6 @@ write(populDat(iKS)%unit,*)
 #:else
   call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
     T1 = transpose(Eiginv(:,:,iKS)) * T1
-
-    ! ###
-    write(*,*) 
-    write(*,*) "Diag EiginvAdj"
-    write(*,*) time * au__fs
-    do i = 1, nLocalCols
-      write(*,*) EiginvAdj(i,i,iKS)
-    enddo
-  ! ###
 
     occ = real(sum(T1,dim=1), dp)
     write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
