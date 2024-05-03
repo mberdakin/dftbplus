@@ -3106,9 +3106,11 @@ contains
 
     integer :: iOrb
 
-    integer :: nLocalCols, nLocalRows, i
+    integer :: nLocalCols, nLocalRows, i, j, unit_num
 
 !    allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
+
+    open(newunit=unit_num, file="Eiginv.dat", status='replace')
 
 #:if WITH_SCALAPACK
     nLocalRows = size(eigvecsReal, dim=1)
@@ -3130,24 +3132,42 @@ contains
 
     end if
 
-    call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
-    T2_C = cmplx(T2_R, 0, dp) ! Make complex after inversion
+    !!!!!!
+    !call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus, uplo="L")
+    !T2_C = cmplx(T2_R, 0, dp) ! Make complex after inversion
+    !Eiginv(:,:) = T2_C 
+    !
+    !gemv
+    T2 = cmplx(eigvecsReal, 0, dp)
+    T3 = 0.0_dp
+    do iOrb = 1, this%nOrbs
+      T3(iOrb, iOrb) = 1.0_dp
+    end do
+    call gesv(T2,T3)
+    Eiginv(:,:) = T3
+    !!!!!
 
-    Eiginv(:,:) = T2_C 
 
-    if (this%tRealHS) then
-      !T2 = cmplx(transpose(eigvecsReal), 0, dp)
-      
-      call pblasfx_ptran(eigvecsReal, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
-    else
-      !T2 = conjg(transpose(eigvecsCplx))
-    end if
+    !!!!!
+    !if (this%tRealHS) then  
+    !  call pblasfx_ptran(eigvecsReal, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
+    !else
+    !end if
 
-    call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
-    T2_C = cmplx(T2_R, 0, dp)
+    !call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
+    !T2_C = cmplx(T2_R, 0, dp)
 
-    EiginvAdj(:,:) = T2_C
-
+    !EiginvAdj(:,:) = T2_C
+    !
+    !gemv:
+    T2 = cmplx(transpose(eigvecsReal), 0, dp)
+    T3 = 0.0_dp
+    do iOrb = 1, this%nOrbs
+      T3(iOrb, iOrb) = 1.0_dp
+    end do
+    call gesv(T2,T3)
+    EiginvAdj(:,:) = T3
+    !!!!!
 #:else 
     if (this%tRealHS) then
       T2 = cmplx(eigvecsReal, 0, dp)
@@ -3180,10 +3200,14 @@ contains
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!
     write(*,*) 
-    write(*,*) "Diag EigeigvecsReal"
+    write(*,*) "Diag Eiginv"
     do i = 1, nLocalCols
-      write(*,*) eigvecsReal(i,i)
+      do j = 1, nLocalCols
+    write(unit_num,*) real(Eiginv(i,j))
     enddo
+    enddo
+    close(unit_num)
+
 
   end subroutine tdPopulInit
 
