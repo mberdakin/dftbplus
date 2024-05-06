@@ -81,7 +81,6 @@ module dftbp_timedep_timeprop
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
   use dftbp_timedep_dynamicsrestart, only : writeRestartFileSparse, readRestartFileSparse
-
 #:endif
 #:if WITH_MBD
   use dftbp_dftb_dispmbd, only : TDispMbd
@@ -628,6 +627,7 @@ module dftbp_timedep_timeprop
 
     !> Number of dynamics steps to perform
     integer, public :: nSteps
+
     !> Dense matrix descriptor
     type(TDenseDescr) :: denseDesc
 
@@ -3610,7 +3610,7 @@ write(populDat(iKS)%unit,*)
     real(dp), allocatable :: Sreal(:,:), SinvReal(:,:)
     complex(dp), allocatable :: T4(:,:)
     real(dp) :: coord0Fold(3,this%nAtom)
-    integer :: nAllAtom, iSpin, sparseSize, iOrb, iKS, iK
+    integer :: nAllAtom, iSpin, sparseSize, iOrb, iKS, iK, nLocalRows, nLocalCols
 
     coord0Fold(:,:) = coord
     call boundaryCond%foldCoordsToCell(coord0Fold, this%latVec)
@@ -3665,11 +3665,36 @@ write(populDat(iKS)%unit,*)
     end select
 
     ! TODO: modify this routine to enable restart and ion dynamics with MPI
-    if (this%tRealHS) then
-      allocate(Sreal(this%nOrbs,this%nOrbs))
-      allocate(SinvReal(this%nOrbs,this%nOrbs))
-      Sreal = 0.0_dp
 
+#:if WITH_SCALAPACK
+    nLocalRows = size(Sinv, dim=1)
+    nLocalCols = size(Sinv, dim=2)
+#:else
+    nLocalRows = this%denseDesc%fullSize
+    nLocalCols = this%denseDesc%fullSize
+#:endif
+
+    if (this%tRealHS) then
+      allocate(Sreal(nLocalRows,nLocalCols))
+      allocate(SinvReal(nLocalRows,nLocalCols))
+    end if
+
+#:if WITH_SCALAPACK
+      if (this%tRealHS) then
+        do iKS = 1, this%parallelKS%nLocalKS
+          call  unpackHSRealBlacs(env%blacs, ints%overlap, neighbourList%iNeighbour,&
+           & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, Sreal)
+          Ssqr(:,:,iKS) = cmplx(Sreal, 0, dp)
+
+          call psymmatinv(this%denseDesc%blacsOrbSqr, Sreal, errStatus)
+          Sinv(:,:,iKS) = cmplx(Sreal, 0, dp)
+        end do
+        ! TODO: add here complex overlap matrix with blacs
+      end if
+      deallocate(Sreal, SinvReal)
+#:else
+    if (this%tRealHS) then
+      Sreal = 0.0_dp
       call unpackHS(Sreal, ints%overlap, neighbourList%iNeighbour, nNeighbourSK, iSquare,&
           & iSparseStart, img2CentCell)
       call adjointLowerTriangle(Sreal)
@@ -3686,11 +3711,9 @@ write(populDat(iKS)%unit,*)
       do iKS = 1, this%parallelKS%nLocalKS
         Sinv(:,:,iKS) = cmplx(SinvReal, 0, dp)
       end do
-
+      deallocate(Sreal, SinvReal)
     else
-
       allocate(T4(this%nOrbs,this%nOrbs))
-      Ssqr(:,:,:) = cmplx(0,0,dp)
       do iKS = 1, this%parallelKS%nLocalKS
         iK = this%parallelKS%localKS(1, iKS)
         iSpin = this%parallelKS%localKS(2, iKS)
@@ -3706,8 +3729,8 @@ write(populDat(iKS)%unit,*)
         call gesv(T4, Sinv(:,:,iKS))
       end do
       deallocate(T4)
-
     end if
+#:endif
 
     call updateDQ(this, ints, neighbourList%iNeighbour, nNeighbourSK, img2CentCell, iSquare,&
         & iSparseStart, Dsqr, Qsqr)

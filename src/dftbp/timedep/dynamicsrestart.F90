@@ -342,7 +342,7 @@ contains
         call packRhoRealBlacs(env%blacs, denseDesc, real(rho(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
             & mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
         call packRhoRealBlacs(env%blacs, denseDesc, real(rhoOld(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
-            & mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
+            & mOrb, iSparseStart, img2CentCell, rhoPrimOld(:,iSpin))
       end do
       call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
       call mpifx_allreduceip(env%mpi%globalComm, rhoPrimOld, MPI_SUM)
