@@ -5115,20 +5115,21 @@ subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
 !Aquí popSparse ya debería ser la matriz "completa" si es así, podemos escribir:
 
     do iAtom1 = 1, this%nAtom
+      array_MO = 0.0_dp
       ii = desc%iAtomStart(iAtom1)
       nOrb1 = desc%iAtomStart(iAtom1+1) - ii 
       iNeigh = 0
-        iOrig = iSparseStart(iNeigh, iAtom1) + 1
+      iOrig = iSparseStart(iNeigh, iAtom1) + 1
 
-        array_MO(1:nOrb1, 1:nOrb1) = array_MO(1:nOrb1, 1:nOrb1)&
-            & + reshape(popSparse(iOrig:iOrig+nOrb1*nOrb1-1), [nOrb1, nOrb1])
+      array_MO(1:nOrb1, 1:nOrb1) = &
+        & reshape(popSparse(iOrig:iOrig+nOrb1*nOrb1-1), [nOrb1, nOrb1])
 
       do jj = 1, nOrb1
-
         occ(ii+jj-1) =  array_MO(jj,jj)
-      
       end do
     end do
+
+    deallocate(popSparse, array_MO)
 
 end subroutine unpackTDpopulBlacs
 #:endif
