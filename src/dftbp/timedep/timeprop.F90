@@ -3199,6 +3199,7 @@ contains
     deallocate(T2, T2_R, T2_C, T3)
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! Write Eigeninv for debug. Erase it 
     write(*,*) 
     write(*,*) "Diag Eiginv"
     do i = 1, nLocalCols
@@ -3207,6 +3208,7 @@ contains
     enddo
     enddo
     close(unit_num)
+    !!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
   end subroutine tdPopulInit
@@ -3356,6 +3358,8 @@ contains
 
 if (this%tRealHS) then
 
+  !!! Matrix mult with psymm Can erase !!! 
+
 !    T1_R(:,:) = real(EiginvAdj(:,:,iKS))
 !    T2_R(:,:) = real(rho(:,:,iKS))    
     
@@ -3381,14 +3385,13 @@ if (this%tRealHS) then
 endif
 
   !###
+  !!! Write T1_C diag for debug. Erase it !!! 
   write(*,*) 
   write(*,*) "Diag T1C"
   write(*,*) time * au__fs
   do i = 1, nLocalCols
     write(*,*) T1_C(i,i)
   enddo
-  
-
   ! ### 
 
   !### 
@@ -5104,7 +5107,9 @@ subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
     dim = size(rhoPrim, dim=1)
     allocate(popSparse(dim))
     allocate(array_MO(mOrb,mOrb))
+
     
+    popSparse = 0.0_dp
     !1. densa to sparese sparse 
     call packRhoRealBlacs(env%blacs, this%denseDesc, T1_R, iNeighbour, nNeighbourSK,&
       & mOrb, iSparseStart, img2CentCell, popSparse)
