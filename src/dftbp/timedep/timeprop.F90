@@ -1615,13 +1615,21 @@ contains
     complex(dp), allocatable :: T1(:, :, :), T2(:, :), T3(:, :, :), T4(:, :)
     integer :: iAt, iStart, iEnd, iKS, iSpin, iOrb
     real(dp) :: pkick(this%nSpin)
+    integer :: nLocalCols, nLocalRows
 
     character(1), parameter :: localDir(3) = ['x', 'y', 'z']
 
-    allocate(T1(this%nOrbs, this%nOrbs, this%parallelKS%nLocalKS))
-    allocate(T2(this%nOrbs, this%nOrbs))
-    allocate(T3(this%nOrbs, this%nOrbs, this%parallelKS%nLocalKS))
-    allocate(T4(this%nOrbs, this%nOrbs))
+    #:if WITH_SCALAPACK
+    nLocalRows = size(rho, dim=1)
+    nLocalCols = size(rho, dim=2)
+    #:else
+    nLocalRows = this%nOrbs
+    nLocalCols = this%nOrbs
+    #:endif
+    allocate(T1(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
+    allocate(T2(nLocalRows, nLocalCols))
+    allocate(T3(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
+    allocate(T4(nLocalRows, nLocalCols))
 
     T1(:,:,:) = cmplx(0,0,dp)
     T2(:,:) = cmplx(0,0,dp)
@@ -1639,6 +1647,48 @@ contains
       end select
     end if
 
+    #:if WITH_SCALAPACK
+    !Waring: La selección de bloque no se si anda con blacs
+    !Qué pasa si lo orbs de un átomo estan repartidos en dos proc?
+
+    do iKS = 1, this%parallelKS%nLocalKS
+      iSpin = this%parallelKS%localKS(2, iKS)
+      do iAt = 1, this%nAtom
+        iStart = iSquare(iAt)
+        iEnd = iSquare(iAt + 1) - 1
+        do iOrb = iStart, iEnd
+          T1(iOrb, iOrb, iKS) = exp(cmplx(0, -pkick(iSpin) * coord(this%currPolDir, iAt), dp))
+          T3(iOrb, iOrb, iKS) = exp(cmplx(0,  pkick(iSpin) * coord(this%currPolDir, iAt), dp))
+        end do
+      end do
+    end do
+
+    do iKS = 1, this%parallelKS%nLocalKS
+      !call gemm(T2, T1(:,:,iKS), rho(:,:,iKS))
+      call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, T1(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+      &  rho(:,:,iKS), this%denseDesc%blacsOrbSqr)
+
+      !call gemm(T4, T2, Ssqr(:,:,iKS), cmplx(1, 0, dp))
+      call pblasfx_pgemm(T4, this%denseDesc%blacsOrbSqr, Ssqr(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+      &  Ssqr(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(1, 0, dp))
+      
+      !call gemm(T2, T4, T3(:,:,iKS))
+      call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, T4, this%denseDesc%blacsOrbSqr,&
+      &  T3(:,:,iKS), this%denseDesc%blacsOrbSqr)      
+      
+      !call gemm(rho(:,:,iKS), T2, Sinv(:,:,iKS), cmplx(0.5, 0, dp))
+      call pblasfx_pgemm(rho(:,:,iKS), this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr,&
+      &  Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp))      
+
+      !call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
+      call pblasfx_pgemm(rho(:,:,iKS), this%denseDesc%blacsOrbSqr, Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+      &  T2, this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')      
+      
+    end do
+
+    write(stdout,"(A)")'Density kicked along ' // localDir(this%currPolDir) //'!'
+
+    #:else
     do iKS = 1, this%parallelKS%nLocalKS
       iSpin = this%parallelKS%localKS(2, iKS)
       do iAt = 1, this%nAtom
@@ -1659,6 +1709,7 @@ contains
       call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
     end do
 
+    #:endif
     write(stdout,"(A)")'Density kicked along ' // localDir(this%currPolDir) //'!'
 
   end subroutine kickDM
