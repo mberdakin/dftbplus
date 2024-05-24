@@ -1616,8 +1616,8 @@ contains
     integer :: iAt, iStart, iEnd, iKS, iSpin, iOrb
     real(dp) :: pkick(this%nSpin)
     integer :: nLocalCols, nLocalRows
-!!!!!!!!!!!!
     character(1), parameter :: localDir(3) = ['x', 'y', 'z']
+!!!!!!!!!!!
     integer :: unit_num, i,j
     character(len=20) :: filename = "Ssqr.txt"
 !!!!!!!!!!!
@@ -1636,11 +1636,7 @@ contains
     
 !!!!!!
     open(newunit=unit_num, file=filename, status='replace')
-    do i= 1, nLocalCols
-      do j=1,nLocalRows
-        write(unit_num,*) i,j,Ssqr(i,j,:)
-      enddo
-    enddo
+ 
 !!!!!!
     T1(:,:,:) = cmplx(0,0,dp)
     T2(:,:) = cmplx(0,0,dp)
@@ -1661,6 +1657,7 @@ contains
     #:if WITH_SCALAPACK
     !Waring: La selección de bloque no se si anda con blacs
     !Qué pasa si lo orbs de un átomo estan repartidos en dos proc?
+    ! Usar unpackHSRealBlacs de updateH con esquema inverso de getTDpopul (unpackTDpopulBlacs)
 
     do iKS = 1, this%parallelKS%nLocalKS
       iSpin = this%parallelKS%localKS(2, iKS)
@@ -1686,10 +1683,16 @@ contains
       call gemm(T2, T4, T3(:,:,iKS))
       !call pblasfx_pgemm(T4, this%denseDesc%blacsOrbSqr, T3(:,:,iKS), this%denseDesc%blacsOrbSqr,&
       !&  T2, this%denseDesc%blacsOrbSqr)      
-      
+
       call gemm(rho(:,:,iKS), T2, Sinv(:,:,iKS), cmplx(0.5, 0, dp))
       !call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr,&
       !&  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp))      
+
+      do i= 1, nLocalCols
+        do j=1,nLocalRows
+          write(unit_num,*) i,j,Sinv(i,j,:)
+        enddo
+      enddo
 
       call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
 !      call pblasfx_pgemm(Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr,&
@@ -1712,9 +1715,14 @@ contains
 
     do iKS = 1, this%parallelKS%nLocalKS
       call gemm(T2, T1(:,:,iKS), rho(:,:,iKS))
-      call gemm(T4, T2, Ssqr(:,:,iKS), cmplx(1, 0, dp))
+      call gemm(T4, T2, Ssqr(:,:,iKS), cmplx(1, 0, dp))    
       call gemm(T2, T4, T3(:,:,iKS))
       call gemm(rho(:,:,iKS), T2, Sinv(:,:,iKS), cmplx(0.5, 0, dp))
+      do i= 1, nLocalCols
+        do j=1,nLocalRows
+          write(unit_num,*) i,j,Sinv(i,j,:)
+        enddo
+      enddo
       call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
     end do
 
@@ -2313,7 +2321,8 @@ contains
     complex(dp), allocatable :: T4(:,:)
     integer :: iSpin, iOrb, iOrb2, iKS, iK
     type(TFileDescr) :: fillingsIn
-    integer :: nLocalCols, nLocalRows, i, j
+    integer :: nLocalCols, nLocalRows, i, j, unit_num
+    character(len=20) :: filename = "Sinv_Ori_MPI.txt"
 
     allocate(rhoPrim(size(ints%hamiltonian, dim=1), this%nSpin))
     allocate(ErhoPrim(size(ints%hamiltonian, dim=1)))
@@ -2340,7 +2349,10 @@ contains
       Ssqr(:,:,:) = 0.0_dp
       Sinv(:,:,:) = 0.0_dp
 
+    open(newunit=unit_num, file=filename, status='replace')
+
 #:if WITH_SCALAPACK
+
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
           call  unpackHSRealBlacs(env%blacs, ints%overlap, iNeighbour,&
@@ -2349,6 +2361,7 @@ contains
 
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
+
         ! TODO: add here complex overlap matrix with blacs
         end if
       end do
@@ -2384,6 +2397,12 @@ contains
 
       write(stdOut,"(A)")'S inverted'
 
+      do i= 1, nLocalCols
+        do j=1,nLocalRows
+          write(unit_num,*) i,j,Sinv(i,j,:)
+        enddo
+      enddo
+      
 #:if WITH_SCALAPACK
       do iKS = 1, this%parallelKS%nLocalKS
         iK = this%parallelKS%localKS(1, iKS)
