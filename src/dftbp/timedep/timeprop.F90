@@ -1688,12 +1688,6 @@ contains
       !call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr,&
       !&  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp))      
 
-      do i= 1, nLocalCols
-        do j=1,nLocalRows
-          write(unit_num,*) i,j,Sinv(i,j,:)
-        enddo
-      enddo
-
       call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
 !      call pblasfx_pgemm(Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr,&
 !      &  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')      
@@ -1718,16 +1712,17 @@ contains
       call gemm(T4, T2, Ssqr(:,:,iKS), cmplx(1, 0, dp))    
       call gemm(T2, T4, T3(:,:,iKS))
       call gemm(rho(:,:,iKS), T2, Sinv(:,:,iKS), cmplx(0.5, 0, dp))
-      do i= 1, nLocalCols
-        do j=1,nLocalRows
-          write(unit_num,*) i,j,Sinv(i,j,:)
-        enddo
-      enddo
       call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
     end do
 
     #:endif
     write(stdout,"(A)")'Density kicked along ' // localDir(this%currPolDir) //'!'
+
+    do i= 1, nLocalCols
+      do j=1,nLocalRows
+        write(unit_num,*) i,j,Ssqr(i,j,:)
+      enddo
+    enddo
 
   end subroutine kickDM
 
@@ -2318,11 +2313,12 @@ contains
     type(TStatus), intent(out) :: errStatus
 
     real(dp), allocatable :: T2(:,:), T3(:,:)
-    complex(dp), allocatable :: T4(:,:)
+    complex(dp), allocatable :: T4(:,:), T5(:,:)
     integer :: iSpin, iOrb, iOrb2, iKS, iK
     type(TFileDescr) :: fillingsIn
-    integer :: nLocalCols, nLocalRows, i, j, unit_num
+    integer :: nLocalCols, nLocalRows, i, j, unit_num, unit_num2
     character(len=20) :: filename = "Sinv_Ori_MPI.txt"
+    character(len=20) :: filename2 = "STSinv.txt"
 
     allocate(rhoPrim(size(ints%hamiltonian, dim=1), this%nSpin))
     allocate(ErhoPrim(size(ints%hamiltonian, dim=1)))
@@ -2341,6 +2337,7 @@ contains
     if (this%tRealHS) then
       allocate(T2(nLocalRows,nLocalCols))
       allocate(T3(nLocalRows,nLocalCols))
+      allocate(T5(nLocalRows,nLocalCols))  !PARA BORRAR
     else
       allocate(T4(nLocalRows,nLocalCols))
     end if
@@ -2350,6 +2347,7 @@ contains
       Sinv(:,:,:) = 0.0_dp
 
     open(newunit=unit_num, file=filename, status='replace')
+    open(newunit=unit_num2, file=filename2, status='replace')
 
 #:if WITH_SCALAPACK
 
@@ -2361,6 +2359,13 @@ contains
 
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
+
+          !! BORRAR :
+!      call pblasfx_pgemm(Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, Ssqr(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+!      &  T5, this%denseDesc%blacsOrbSqr)
+        
+!        call gemm(T5, Ssqr(:,:,iKS), Sinv(:,:,iKS))
+          T5 = matmul(Ssqr(:,:,iKS), Sinv(:,:,iKS))
 
         ! TODO: add here complex overlap matrix with blacs
         end if
@@ -2391,18 +2396,29 @@ contains
             Sinv(iOrb, iOrb, iKS) = 1.0_dp
           end do
           call gesv(T4, Sinv(:,:,iKS))
+
+          !call gemm(T5, Ssqr(:,:,iKS), Sinv(:,:,iKS))
+          T5 = matmul(Ssqr(:,:,iKS), Sinv(:,:,iKS))
+
         end if
       end do
 #:endif
 
       write(stdOut,"(A)")'S inverted'
-
+!!!!!!!!!!!!!!
       do i= 1, nLocalCols
         do j=1,nLocalRows
           write(unit_num,*) i,j,Sinv(i,j,:)
         enddo
       enddo
       
+      do i= 1, nLocalCols
+        do j=1,nLocalRows
+          write(unit_num2,*) i,j,T5(i,j)
+        enddo
+      enddo
+!!!!!!!!!!!!!!!      
+
 #:if WITH_SCALAPACK
       do iKS = 1, this%parallelKS%nLocalKS
         iK = this%parallelKS%localKS(1, iKS)
