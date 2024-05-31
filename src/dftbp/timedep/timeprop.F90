@@ -77,11 +77,14 @@ module dftbp_timedep_timeprop
   use dftbp_dftb_densitymatrix, only : makeDensityMtxRealBlacs
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs, packRhoRealBlacs
   use dftbp_dftb_populations, only : mulliken
-  use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran, pblasfx_pgemm
+  use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran, pblasfx_pgemm, &
+  & scalafx_pgetri, scalafx_pgetrf, M_, N_, pblasfx_ptranu
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
   use dftbp_timedep_dynamicsrestart, only : writeRestartFileSparse, readRestartFileSparse
-#:endif
+  use dftbp_math_matrixops, only : adjointLowerTriangle_BLACS
+
+  #:endif
 #:if WITH_MBD
   use dftbp_dftb_dispmbd, only : TDispMbd
 #:endif
@@ -2313,12 +2316,10 @@ contains
     type(TStatus), intent(out) :: errStatus
 
     real(dp), allocatable :: T2(:,:), T3(:,:)
-    complex(dp), allocatable :: T4(:,:), T5(:,:)
-    integer :: iSpin, iOrb, iOrb2, iKS, iK
+    complex(dp), allocatable :: T4(:,:)
+    integer :: iSpin, iOrb, iOrb2, iKS, iK, nLocalRows, nLocalCols
     type(TFileDescr) :: fillingsIn
-    integer :: nLocalCols, nLocalRows, i, j, unit_num, unit_num2
-    character(len=20) :: filename = "Sinv_Ori_MPI.txt"
-    character(len=20) :: filename2 = "STSinv.txt"
+
 
     allocate(rhoPrim(size(ints%hamiltonian, dim=1), this%nSpin))
     allocate(ErhoPrim(size(ints%hamiltonian, dim=1)))
@@ -2337,7 +2338,6 @@ contains
     if (this%tRealHS) then
       allocate(T2(nLocalRows,nLocalCols))
       allocate(T3(nLocalRows,nLocalCols))
-      allocate(T5(nLocalRows,nLocalCols))  !PARA BORRAR
     else
       allocate(T4(nLocalRows,nLocalCols))
     end if
@@ -2345,9 +2345,6 @@ contains
     if (.not. this%tReadRestart) then
       Ssqr(:,:,:) = 0.0_dp
       Sinv(:,:,:) = 0.0_dp
-
-    open(newunit=unit_num, file=filename, status='replace')
-    open(newunit=unit_num2, file=filename2, status='replace')
 
 #:if WITH_SCALAPACK
 
@@ -2360,12 +2357,11 @@ contains
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
 
-          !! BORRAR :
-!      call pblasfx_pgemm(Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, Ssqr(:,:,iKS), this%denseDesc%blacsOrbSqr,&
-!      &  T5, this%denseDesc%blacsOrbSqr)
-        
-!        call gemm(T5, Ssqr(:,:,iKS), Sinv(:,:,iKS))
-          T5 = matmul(Ssqr(:,:,iKS), Sinv(:,:,iKS))
+          !!! Esto debería quedar en _Blacs falta el resto de los
+          !!! parámetros de la func 
+          !call adjointLowerTriangle(Sinv(:,:,iKS))
+          !call adjointLowerTriangle_BLACS(this%denseDesc, Sinv(:,:,iKS))
+
 
         ! TODO: add here complex overlap matrix with blacs
         end if
@@ -2383,6 +2379,7 @@ contains
           end do
           call gesv(T2, T3)
           Sinv(:,:,iKS) = cmplx(T3, 0, dp)
+
         else
           iK = this%parallelKS%localKS(1, iKS)
           iSpin = this%parallelKS%localKS(2, iKS)
@@ -2397,27 +2394,13 @@ contains
           end do
           call gesv(T4, Sinv(:,:,iKS))
 
-          !call gemm(T5, Ssqr(:,:,iKS), Sinv(:,:,iKS))
-          T5 = matmul(Ssqr(:,:,iKS), Sinv(:,:,iKS))
-
+ 
         end if
       end do
 #:endif
 
       write(stdOut,"(A)")'S inverted'
-!!!!!!!!!!!!!!
-      do i= 1, nLocalCols
-        do j=1,nLocalRows
-          write(unit_num,*) i,j,Sinv(i,j,:)
-        enddo
-      enddo
-      
-      do i= 1, nLocalCols
-        do j=1,nLocalRows
-          write(unit_num2,*) i,j,T5(i,j)
-        enddo
-      enddo
-!!!!!!!!!!!!!!!      
+     
 
 #:if WITH_SCALAPACK
       do iKS = 1, this%parallelKS%nLocalKS
@@ -3196,11 +3179,11 @@ contains
     !> Error status
     type(TStatus), intent(out) :: errStatus
 
-    complex(dp), allocatable :: T2(:,:), T2_C(:,:), T3(:,:)
-    real(dp), allocatable :: T2_R(:,:)
+    complex(dp), allocatable :: T1(:,:), T2(:,:), T2_C(:,:), T3(:,:)
 
+    integer, allocatable  :: ipiv(:)
+    integer :: mm, nn
     integer :: iOrb
-
     integer :: nLocalCols, nLocalRows, i, j, unit_num
 
 !    allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
@@ -3215,54 +3198,40 @@ contains
     nLocalCols = this%denseDesc%fullSize
 #:endif
 
+    allocate(T1(nLocalRows,nLocalCols))
     allocate(T2(nLocalRows,nLocalCols))
-    allocate(T2_R(nLocalRows,nLocalCols))
     allocate(T2_C(nLocalRows,nLocalCols))
     allocate(T3(nLocalRows,nLocalCols))
 
 #: if WITH_SCALAPACK
-    if (this%tRealHS) then
-      !T2 = cmplx(eigvecsReal, 0, dp)
-      T2_R = eigvecsReal
-
+    if (this%tRealHS) then      
+      T2 = cmplx(eigvecsReal, 0, dp)
+      
     end if
 
     !!!!!!
-    !call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus, uplo="L")
-    !T2_C = cmplx(T2_R, 0, dp) ! Make complex after inversion
-    !Eiginv(:,:) = T2_C 
-    !
-    !gemv
-    T2 = cmplx(eigvecsReal, 0, dp)
-    T3 = 0.0_dp
-    do iOrb = 1, this%nOrbs
-      T3(iOrb, iOrb) = 1.0_dp
-    end do
-    call gesv(T2,T3)
-    Eiginv(:,:) = T3
-    !!!!!
+      mm = this%denseDesc%blacsOrbSqr(M_)
+      nn = this%denseDesc%blacsOrbSqr(N_)
+      allocate(ipiv(min(mm,nn)))
+      ipiv = 0
+      call scalafx_pgetrf(T2, this%denseDesc%blacsOrbSqr, ipiv)
+      call scalafx_pgetri(T2, this%denseDesc%blacsOrbSqr, ipiv)
+      Eiginv(:,:) = T2 
 
+    
+    if (this%tRealHS) then  
+      T1 = cmplx(eigvecsReal, 0, dp)
 
-    !!!!!
-    !if (this%tRealHS) then  
-    !  call pblasfx_ptran(eigvecsReal, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
-    !else
-    !end if
+      call pblasfx_ptranu(T1, this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr)
+    end if
 
-    !call psymmatinv(this%denseDesc%blacsOrbSqr, T2_R, errStatus)
-    !T2_C = cmplx(T2_R, 0, dp)
+    ipiv = 0
+    call scalafx_pgetrf(T2, this%denseDesc%blacsOrbSqr, ipiv)
+    call scalafx_pgetri(T2, this%denseDesc%blacsOrbSqr, ipiv)
 
-    !EiginvAdj(:,:) = T2_C
-    !
-    !gemv:
-    T2 = cmplx(transpose(eigvecsReal), 0, dp)
-    T3 = 0.0_dp
-    do iOrb = 1, this%nOrbs
-      T3(iOrb, iOrb) = 1.0_dp
-    end do
-    call gesv(T2,T3)
-    EiginvAdj(:,:) = T3
-    !!!!!
+    EiginvAdj(:,:) = T2
+    
+
 #:else 
     if (this%tRealHS) then
       T2 = cmplx(eigvecsReal, 0, dp)
@@ -3291,7 +3260,7 @@ contains
     EiginvAdj(:,:) = T3
 #:endif
 
-    deallocate(T2, T2_R, T2_C, T3)
+    deallocate(T1, T2, T2_C, T3)
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!
     ! Write Eigeninv for debug. Erase it 
