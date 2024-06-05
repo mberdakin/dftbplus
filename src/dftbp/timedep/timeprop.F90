@@ -3186,8 +3186,6 @@ contains
     integer :: iOrb
     integer :: nLocalCols, nLocalRows, i, j, unit_num
 
-!    allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
-
 #:if WITH_SCALAPACK
     nLocalRows = size(eigvecsReal, dim=1)
     nLocalCols = size(eigvecsReal, dim=2)
