@@ -3188,8 +3188,6 @@ contains
 
 !    allocate(T2(this%nOrbs, this%nOrbs), T3(this%nOrbs, this%nOrbs))
 
-    open(newunit=unit_num, file="Eiginv.dat", status='replace')
-
 #:if WITH_SCALAPACK
     nLocalRows = size(eigvecsReal, dim=1)
     nLocalCols = size(eigvecsReal, dim=2)
@@ -3209,7 +3207,7 @@ contains
       
     end if
 
-    !!!!!!
+    !!!!!! Ivert eigvecsReal with pgetrf and pgetri
       mm = this%denseDesc%blacsOrbSqr(M_)
       nn = this%denseDesc%blacsOrbSqr(N_)
       allocate(ipiv(min(mm,nn)))
@@ -3225,6 +3223,7 @@ contains
       call pblasfx_ptranu(T1, this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr)
     end if
 
+    !!!!!! Ivert eigvecsReal^{dagger} with pgetrf and pgetri
     ipiv = 0
     call scalafx_pgetrf(T2, this%denseDesc%blacsOrbSqr, ipiv)
     call scalafx_pgetri(T2, this%denseDesc%blacsOrbSqr, ipiv)
@@ -3261,18 +3260,6 @@ contains
 #:endif
 
     deallocate(T1, T2, T2_C, T3)
-
-    !!!!!!!!!!!!!!!!!!!!!!!!!!
-    ! Write Eigeninv for debug. Erase it 
-    write(*,*) 
-    write(*,*) "Diag Eiginv"
-    do i = 1, nLocalCols
-      do j = 1, nLocalCols
-    write(unit_num,*) real(Eiginv(i,j))
-    enddo
-    enddo
-    close(unit_num)
-    !!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
   end subroutine tdPopulInit
