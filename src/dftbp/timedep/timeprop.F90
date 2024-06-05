@@ -3380,8 +3380,6 @@ contains
     real(dp), allocatable :: T1_R(:,:), T2_R(:,:), T3_R(:,:)
     complex(dp), allocatable :: T1_C(:,:), T3_C(:,:)
 
-    !! EIGENS ESTÁN dist? me parece que no 
-
 #:if WITH_SCALAPACK
     nLocalRows = size(Eiginv, dim=1)
     nLocalCols = size(Eiginv, dim=2)
@@ -3390,66 +3388,31 @@ contains
     nLocalCols = this%denseDesc%fullSize
 #:endif
     allocate(T1(nLocalRows,nLocalCols))
-    allocate(T11(nLocalRows,nLocalCols))
-    allocate(T2(nLocalRows,nLocalCols))
-
-    allocate(T1_R(nLocalRows,nLocalCols))
-    allocate(T2_R(nLocalRows,nLocalCols))
-    allocate(T3_R(nLocalRows,nLocalCols))
     allocate(T1_C(nLocalRows,nLocalCols))
     allocate(T3_C(nLocalRows,nLocalCols))
 
 
 #:if WITH_SCALAPACK
 
-!    call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
-!    T1 = transpose(Eiginv(:,:,iKS)) * T1
 
 if (this%tRealHS) then
 
-  !!! Matrix mult with psymm Can erase !!! 
-
-!    T1_R(:,:) = real(EiginvAdj(:,:,iKS))
-!    T2_R(:,:) = real(rho(:,:,iKS))    
-    
-
-!    call pblasfx_psymm(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
-!    & T3_R, this%denseDesc%blacsOrbSqr, side="R")
-
-!    T1_R(:,:) = real(Eiginv(:,:,iKS))
-!    call pblasfx_ptran(T1_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr)
-
-!    call pblasfx_psymm(T3_R, this%denseDesc%blacsOrbSqr, T2_R, this%denseDesc%blacsOrbSqr,&
-!    & T1_R, this%denseDesc%blacsOrbSqr, side="R")
-
 !!! Matrix mult with pgemm !!! 
-
+  ! T3_C = rho*EiginvAdj
     call pblasfx_pgemm(rho(:,:,iKS), this%denseDesc%blacsOrbSqr, EiginvAdj(:,:,iKS), this%denseDesc%blacsOrbSqr,&
     & T3_C, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
-! T3_C = rho*EiginvAdj
+  ! T1_C = Trans(Eiginv)*rho*EiginvAdj
     call pblasfx_pgemm(Eiginv(:,:,iKS), this%denseDesc%blacsOrbSqr, T3_C, this%denseDesc%blacsOrbSqr,&
     & T1_C, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
-! T1_C = Trans(Eiginv)*rho*EiginvAdj
 
 endif
 
-  !###
-  !!! Write T1_C diag for debug. Erase it !!! 
-  write(*,*) 
-  write(*,*) "Diag T1C"
-  write(*,*) time * au__fs
-  do i = 1, nLocalCols
-    write(*,*) T1_C(i,i)
-  enddo
-  ! ### 
-
-  !### 
   ! Call unpack and reduce distributed populations 
 
   call unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
   & img2CentCell, real(T1_C), rhoPrim, env, occ, this, iKS, this%denseDesc)
 
-  ! Trae occ  y se escribe a archivo : 
+  ! bring occ and write to file : 
 
 write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
 do ii = 1, size(occ)
