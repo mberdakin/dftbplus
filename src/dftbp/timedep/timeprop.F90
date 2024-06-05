@@ -2361,8 +2361,10 @@ contains
           !!! parámetros de la func 
           !!! WARING ONLY GOOD FOR OMP or np=1:
           call adjointLowerTriangle(Sinv(:,:,iKS))
-          !call adjointLowerTriangle_BLACS(this%denseDesc, Sinv(:,:,iKS))
-
+          
+          !call adjointLowerTriangle_BLACS(this%denseDesc, env%blacs%orbitalGrid%myCol, &
+          !& env%blacs%orbitalGrid%myRow, env%blacs%orbitalGrid%nCol, &
+          !& env%blacs%orbitalGrid%nRow, Sinv(:,:,iKS))
 
         ! TODO: add here complex overlap matrix with blacs
         end if
