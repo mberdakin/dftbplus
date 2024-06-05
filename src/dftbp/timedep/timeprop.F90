@@ -1675,25 +1675,25 @@ contains
     end do
 
     do iKS = 1, this%parallelKS%nLocalKS
-      call gemm(T2, T1(:,:,iKS), rho(:,:,iKS))
-      !call pblasfx_pgemm(T1(:,:,iKS), this%denseDesc%blacsOrbSqr, rho(:,:,iKS), this%denseDesc%blacsOrbSqr,&
-      !&  T2, this%denseDesc%blacsOrbSqr)
+      !call gemm(T2, T1(:,:,iKS), rho(:,:,iKS))
+      call pblasfx_pgemm(T1(:,:,iKS), this%denseDesc%blacsOrbSqr, rho(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+      &  T2, this%denseDesc%blacsOrbSqr)
 
-      call gemm(T4, T2, Ssqr(:,:,iKS), cmplx(1, 0, dp))
-      !call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, Ssqr(:,:,iKS), this%denseDesc%blacsOrbSqr,&
-      !&  T4, this%denseDesc%blacsOrbSqr, cmplx(1, 0, dp))
+      !call gemm(T4, T2, Ssqr(:,:,iKS), cmplx(1, 0, dp))
+      call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, Ssqr(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+      &  T4, this%denseDesc%blacsOrbSqr, cmplx(1, 0, dp))
       
-      call gemm(T2, T4, T3(:,:,iKS))
-      !call pblasfx_pgemm(T4, this%denseDesc%blacsOrbSqr, T3(:,:,iKS), this%denseDesc%blacsOrbSqr,&
-      !&  T2, this%denseDesc%blacsOrbSqr)      
+      !call gemm(T2, T4, T3(:,:,iKS))
+      call pblasfx_pgemm(T4, this%denseDesc%blacsOrbSqr, T3(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+      &  T2, this%denseDesc%blacsOrbSqr)      
 
-      call gemm(rho(:,:,iKS), T2, Sinv(:,:,iKS), cmplx(0.5, 0, dp))
-      !call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr,&
-      !&  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp))      
+      !call gemm(rho(:,:,iKS), T2, Sinv(:,:,iKS), cmplx(0.5, 0, dp))
+      call pblasfx_pgemm(T2, this%denseDesc%blacsOrbSqr, Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+      &  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp))      
 
-      call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
-!      call pblasfx_pgemm(Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr,&
-!      &  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')      
+      !call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
+      call pblasfx_pgemm(Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr,&
+      &  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')      
       
     end do
 
@@ -2359,7 +2359,8 @@ contains
 
           !!! Esto debería quedar en _Blacs falta el resto de los
           !!! parámetros de la func 
-          !call adjointLowerTriangle(Sinv(:,:,iKS))
+          !!! WARING ONLY GOOD FOR OMP or np=1:
+          call adjointLowerTriangle(Sinv(:,:,iKS))
           !call adjointLowerTriangle_BLACS(this%denseDesc, Sinv(:,:,iKS))
 
 
