@@ -78,7 +78,8 @@ module dftbp_timedep_timeprop
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs, packRhoRealBlacs
   use dftbp_dftb_populations, only : mulliken
   use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran, pblasfx_pgemm, &
-  & scalafx_pgetri, scalafx_pgetrf, M_, N_, pblasfx_ptranu
+  & scalafx_pgetri, scalafx_pgetrf, M_, N_, pblasfx_ptranu, DLEN_,&
+  & scalafx_getdescriptor
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
   use dftbp_timedep_dynamicsrestart, only : writeRestartFileSparse, readRestartFileSparse
@@ -2318,6 +2319,7 @@ contains
     real(dp), allocatable :: T2(:,:), T3(:,:)
     complex(dp), allocatable :: T4(:,:)
     integer :: iSpin, iOrb, iOrb2, iKS, iK, nLocalRows, nLocalCols
+    integer :: desc(DLEN_), nn
     type(TFileDescr) :: fillingsIn
 
 
@@ -2357,14 +2359,14 @@ contains
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
 
-          !!! Esto debería quedar en _Blacs falta el resto de los
-          !!! parámetros de la func 
-          !!! WARING ONLY GOOD FOR OMP or np=1:
-          call adjointLowerTriangle(Sinv(:,:,iKS))
-          
-          !call adjointLowerTriangle_BLACS(this%denseDesc, env%blacs%orbitalGrid%myCol, &
-          !& env%blacs%orbitalGrid%myRow, env%blacs%orbitalGrid%nCol, &
-          !& env%blacs%orbitalGrid%nRow, Sinv(:,:,iKS))
+
+          ! Simetrize Sinv with adjointLowerTriangle_BLACS
+          nn = this%denseDesc%fullSize
+          call scalafx_getdescriptor(env%blacs%orbitalGrid, nn, nn, env%blacs%rowBlockSize,&
+          & env%blacs%columnBlockSize, desc)       
+          call adjointLowerTriangle_BLACS(desc, env%blacs%orbitalGrid%myCol, &
+          & env%blacs%orbitalGrid%myRow, env%blacs%orbitalGrid%nCol, &
+          & env%blacs%orbitalGrid%nRow, Sinv(:,:,iKS))
 
         ! TODO: add here complex overlap matrix with blacs
         end if
