@@ -2359,7 +2359,6 @@ contains
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
 
-
           ! Simetrize Sinv with adjointLowerTriangle_BLACS
           nn = this%denseDesc%fullSize
           call scalafx_getdescriptor(env%blacs%orbitalGrid, nn, nn, env%blacs%rowBlockSize,&
