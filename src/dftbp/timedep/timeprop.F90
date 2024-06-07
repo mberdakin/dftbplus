@@ -79,7 +79,7 @@ module dftbp_timedep_timeprop
   use dftbp_dftb_populations, only : mulliken
   use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran, pblasfx_pgemm, &
   & scalafx_pgetri, scalafx_pgetrf, M_, N_, pblasfx_ptranu, DLEN_,&
-  & scalafx_getdescriptor
+  & scalafx_getdescriptor, scalafx_addl2g
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
   use dftbp_timedep_dynamicsrestart, only : writeRestartFileSparse, readRestartFileSparse
@@ -1596,7 +1596,7 @@ contains
 
 
   !> Kick the density matrix for spectrum calculations
-  subroutine kickDM(this, rho, Ssqr, Sinv, iSquare, coord)
+  subroutine kickDM(this, rho, Ssqr, Sinv, iSquare, coord, orb, env)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(in) :: this
@@ -1616,8 +1616,14 @@ contains
     !> Index array for start of atomic block in dense matrices
     integer, intent(in) :: iSquare(:)
 
-    complex(dp), allocatable :: T1(:, :, :), T2(:, :), T3(:, :, :), T4(:, :)
-    integer :: iAt, iStart, iEnd, iKS, iSpin, iOrb
+    !> Atomic orbital information
+    type(TOrbitals), intent(in) :: orb
+
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
+
+    complex(dp), allocatable :: T1(:, :, :), T2(:, :), T3(:, :, :), T4(:, :), tmp1(:,:), tmp2(:,:)
+    integer :: iAt, iStart, iEnd, iKS, iSpin, iOrb, iOrbStart, nOrb
     real(dp) :: pkick(this%nSpin)
     integer :: nLocalCols, nLocalRows
     character(1), parameter :: localDir(3) = ['x', 'y', 'z']
@@ -1636,7 +1642,6 @@ contains
     allocate(T2(nLocalRows, nLocalCols))
     allocate(T3(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
     allocate(T4(nLocalRows, nLocalCols))
-
     
 !!!!!!
     open(newunit=unit_num, file=filename, status='replace')
@@ -1659,21 +1664,28 @@ contains
     end if
 
     #:if WITH_SCALAPACK
-    !Waring: La selección de bloque no se si anda con blacs
-    !Qué pasa si lo orbs de un átomo estan repartidos en dos proc?
-    ! Usar unpackHSRealBlacs de updateH con esquema inverso de getTDpopul (unpackTDpopulBlacs)
+    allocate(tmp1(orb%mOrb, orb%mOrb))
+    allocate(tmp2(orb%mOrb, orb%mOrb))
 
     do iKS = 1, this%parallelKS%nLocalKS
       iSpin = this%parallelKS%localKS(2, iKS)
       do iAt = 1, this%nAtom
-        iStart = iSquare(iAt)
-        iEnd = iSquare(iAt + 1) - 1
-        do iOrb = iStart, iEnd
-          T1(iOrb, iOrb, iKS) = exp(cmplx(0, -pkick(iSpin) * coord(this%currPolDir, iAt), dp))
-          T3(iOrb, iOrb, iKS) = exp(cmplx(0,  pkick(iSpin) * coord(this%currPolDir, iAt), dp))
+        iOrbStart = this%denseDesc%iAtomStart(iAt)
+        nOrb = this%denseDesc%iAtomStart(iAt + 1) - iOrbStart
+        tmp1(:,:) = 0.0_dp
+        tmp2(:,:) = 0.0_dp
+        do iOrb = 1, nOrb
+          tmp1(iOrb, iOrb) = exp(cmplx(0, -pkick(iSpin) * coord(this%currPolDir, iAt), dp))
+          tmp2(iOrb, iOrb) = exp(cmplx(0,  pkick(iSpin) * coord(this%currPolDir, iAt), dp))
         end do
+        call scalafx_addl2g(env%blacs%orbitalGrid, tmp1(1:nOrb, 1:nOrb), this%denseDesc%blacsOrbSqr,&
+            & iOrbStart, iOrbStart, T1(:,:,iKS))
+        call scalafx_addl2g(env%blacs%orbitalGrid, tmp2(1:nOrb, 1:nOrb), this%denseDesc%blacsOrbSqr,&
+            & iOrbStart, iOrbStart, T3(:,:,iKS))
       end do
     end do
+
+    deallocate(tmp1, tmp2)
 
     do iKS = 1, this%parallelKS%nLocalKS
       !call gemm(T2, T1(:,:,iKS), rho(:,:,iKS))
@@ -2319,8 +2331,10 @@ contains
     real(dp), allocatable :: T2(:,:), T3(:,:)
     complex(dp), allocatable :: T4(:,:)
     integer :: iSpin, iOrb, iOrb2, iKS, iK, nLocalRows, nLocalCols
-    integer :: desc(DLEN_), nn
     type(TFileDescr) :: fillingsIn
+#:if WITH_SCALAPACK
+    integer :: desc(DLEN_), nn
+#:endif
 
 
     allocate(rhoPrim(size(ints%hamiltonian, dim=1), this%nSpin))
@@ -4651,7 +4665,7 @@ write(populDat(iKS)%unit,*)
     ! Apply kick to rho if necessary (in restart case, check it starttime is 0 or not)
     ! TODO: Kick for MPI
     if (this%tKick .and. this%startTime < this%dt / 10.0_dp) then
-      call kickDM(this, this%trho, this%Ssqr, this%Sinv, iSquare, coord)
+      call kickDM(this, this%trho, this%Ssqr, this%Sinv, iSquare, coord, orb, env)
     end if
 
     call getPositionDependentEnergy(this, env, this%energy, coordAll, img2CentCell, neighbourList,&
