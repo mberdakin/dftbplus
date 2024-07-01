@@ -15,9 +15,9 @@ module dftbp_timedep_dynamicsrestart
   use dftbp_common_file, only : TFileDescr, TOpenOptions, openFile, closeFile
   use dftbp_common_status, only : TStatus
   #:if WITH_SCALAPACK
-  use dftbp_dftb_sparse2dense, only: packRhoRealBlacs, unpackHSRealBlacs
-  use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
+  use dftbp_extlibs_scalapackfx, only : linecomm, DLEN_, M_, N_, scalafx_getdescriptor
   use dftbp_type_densedescr, only: TDenseDescr
+  use dftbp_type_commontypes, only : TParallelKS
   #:endif
   implicit none
 
@@ -28,7 +28,7 @@ module dftbp_timedep_dynamicsrestart
   private
   public :: writeRestartFile, readRestartFile
   #:if WITH_SCALAPACK
-  public :: writeRestartFileSparse, readRestartFileSparse
+  public :: writeRestartFileBlacs, readRestartFileBlacs
   #:endif
   
 contains
@@ -270,19 +270,17 @@ contains
 
   end subroutine readRestartFile
 
+
   #:if WITH_SCALAPACK
-  !> Write to a restart file the DM in sparse format (only should be used if the square DM does not fit in memory, i.e. with MPI)
-  subroutine writeRestartFileSparse(rho, rhoOld, rhoPrim, coord, veloc, time, dt, fileName, env, &
-      & denseDesc, iNeighbour, nNeighbourSK, mOrb, iSparseStart, img2CentCell, tRealHS, errStatus)
+  !> Write to a restart file the DM in distributed format
+  subroutine writeRestartFileBlacs(rho, rhoOld, coord, veloc, time, dt, fileName, env, &
+      & denseDesc, parallelKS, errStatus)
 
     !> Density matrix
     complex(dp), intent(in) :: rho(:,:,:)
 
     !> Density matrix at previous time step
     complex(dp), intent(in) :: rhoOld(:,:,:)
-
-    !> Sparse density matrix
-    real(dp), intent(inout) :: rhoPrim(:,:)
 
     !> Atomic coordinates
     real(dp), intent(in) :: coord(:,:)
@@ -305,79 +303,70 @@ contains
     !> Dense matrix descriptor
     type(TDenseDescr), intent(in) :: denseDesc
 
-    !> Atomic neighbour data
-    integer, intent(in) :: iNeighbour(0:,:)
-
-    !> Nr. of neighbours for atoms out to max interaction distance (excluding Ewald terms)
-    integer, intent(in) :: nNeighbourSK(:)
-
-    !> Maximum number of orbitals.
-    integer, intent(in) :: mOrb
-
-    !> Index array for location of atomic blocks in large sparse arrays
-    integer, intent(in) :: iSparseStart(:,:)
-
-    !> Image atoms to their equivalent in the central cell
-    integer, intent(in) :: img2CentCell(:)
-
-    !> Is the Hamiltonian real?
-    logical, intent(out) :: tRealHS
+    !> Container for parallel distribution pattern of k-points and spins
+    type(TParallelKS), allocatable :: parallelKS
 
     !> Operation status
     type(TStatus), intent(out) :: errStatus
 
     type(TFileDescr) :: fd
-    integer :: iSpin, iErr
-    character(len=120) :: error_string
-    real(dp), allocatable :: rhoPrimOld(:,:)
-
-    allocate(rhoPrimOld(size(rhoPrim, dim=1), size(rhoPrim, dim=2)))
+    integer :: iErr, nOrb, nSpin, icol, iKS
+    type(linecomm) :: collector
+    complex(dp), allocatable :: localRhoCol(:)
 
     ! Set to stream explicitely, as it was written as stream from the beginning
-    call openFile(fd, trim(fileName) // '.bin',&
-        & options=TOpenOptions(form='unformatted', access='stream', action='write'), iostat=iErr)
+    nOrb = denseDesc%fullSize
+    nSpin = parallelKS%nLocalKS
+    if (env%mpi%tGlobalLead) then
+      call openFile(fd, trim(fileName) // '.bin',&
+          & options=TOpenOptions(form='unformatted', access='stream', action='write'), iostat=iErr)
+      write(fd%unit) iDumpFormat
+      write(fd%unit) nOrb, nSpin, size(coord, dim=2), time, dt
+      write(fd%unit) coord, veloc
+    end if
 
-    if (tRealHS) then
-      do iSpin = 1, size(rhoPrim, dim=2)
-        call packRhoRealBlacs(env%blacs, denseDesc, real(rho(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
-            & mOrb, iSparseStart, img2CentCell, rhoPrim(:,iSpin))
-        call packRhoRealBlacs(env%blacs, denseDesc, real(rhoOld(:,:,iSpin), dp), iNeighbour, nNeighbourSK,&
-            & mOrb, iSparseStart, img2CentCell, rhoPrimOld(:,iSpin))
+    nOrb = denseDesc%fullSize
+    allocate(localRhoCol(nOrb))
+
+    call collector%init(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr, "c")
+    do iKS = 1, parallelKS%nLocalKS
+      do icol = 1, nOrb
+        if (env%mpi%tGlobalLead) then
+          call collector%getline_lead(env%blacs%orbitalGrid, icol, rho(:,:,iKS), localRhoCol)
+          write(fd%unit)localRhoCol(:)
+        else
+          call collector%getline_follow(env%blacs%orbitalGrid, icol, rho(:,:,iKS))
+        end if
       end do
-      call mpifx_allreduceip(env%mpi%globalComm, rhoPrim, MPI_SUM)
-      call mpifx_allreduceip(env%mpi%globalComm, rhoPrimOld, MPI_SUM)
-    else
-        @:RAISE_ERROR(errStatus, -1, "Complex Hamiltonian rt-TDDFTB not implemented with MPI parallelization yet")
+    end do
+
+    do iKS = 1, parallelKS%nLocalKS
+      do icol = 1, nOrb
+        if (env%mpi%tGlobalLead) then
+          call collector%getline_lead(env%blacs%orbitalGrid, icol, rhoOld(:,:,iKS), localRhoCol)
+          write(fd%unit)localRhoCol(:)
+        else
+          call collector%getline_follow(env%blacs%orbitalGrid, icol, rhoOld(:,:,iKS))
+        end if
+      end do
+    end do
+
+    if (env%mpi%tGlobalLead) then
+      call closeFile(fd)
     end if
 
-    if (iErr /= 0) then
-      write(error_string, "(A,A,A)") "Failure to open external restart file ",trim(fileName),&
-          & ".bin for writing"
-      @:RAISE_ERROR(errStatus, -1, error_string)
-    end if
+  end subroutine writeRestartFileBlacs
 
-    write(fd%unit) iDumpFormat
-    write(fd%unit) size(rhoPrim, dim=1), size(rhoPrim, dim=2), size(coord, dim=2), time, dt
-    write(fd%unit) rhoPrim, rhoPrimOld, coord, veloc
 
-    call closeFile(fd)
-
-    deallocate(rhoPrimOld)
-
-  end subroutine writeRestartFileSparse
-
-  !> Write to a restart file the DM in sparse format (only should be used if the square DM does not fit in memory, i.e. with MPI)
-  subroutine readRestartFileSparse(rho, rhoOld, rhoPrim, coord, veloc, time, dt, fileName, env, &
-      & denseDesc, iNeighbour, nNeighbourSK, iSparseStart, img2CentCell, tRealHS, errStatus)
+  !> Write to a restart file the DM in Blacs format
+  subroutine readRestartFileBlacs(rho, rhoOld, coord, veloc, time, dt, fileName, env, &
+      & denseDesc, parallelKS, errStatus)
 
     !> Density Matrix
     complex(dp), intent(out) :: rho(:,:,:)
 
     !> Previous density Matrix
     complex(dp), intent(out) :: rhoOld(:,:,:)
-
-    !> Sparse density matrix
-    real(dp), intent(inout) :: rhoPrim(:,:)
 
     !> Atomic coordinates
     real(dp), intent(out) :: coord(:,:)
@@ -400,87 +389,60 @@ contains
     !> Dense matrix descriptor
     type(TDenseDescr), intent(in) :: denseDesc
 
-    !> Atomic neighbour data
-    integer, intent(in) :: iNeighbour(0:,:)
-
-    !> Nr. of neighbours for atoms out to max interaction distance (excluding Ewald terms)
-    integer, intent(in) :: nNeighbourSK(:)
-
-    !> Index array for location of atomic blocks in large sparse arrays
-    integer, intent(in) :: iSparseStart(:,:)
-
-    !> Image atoms to their equivalent in the central cell
-    integer, intent(in) :: img2CentCell(:)
-
-    !> Is the Hamiltonian real?
-    logical, intent(out) :: tRealHS
+    !> Container for parallel distribution pattern of k-points and spins
+    type(TParallelKS), allocatable :: parallelKS
 
     !> Operation status
     type(TStatus), intent(out) :: errStatus
 
     type(TFileDescr) :: fd
-    integer :: iSpin, iErr, version, nSparse, nSpin, nAtom
+    integer :: iErr, version, nOrb, nSpin, nAtom, icol, iKS
     character(len=120) :: error_string
     real(dp) :: deltaT
-    real(dp), allocatable :: rhoPrimOld(:,:), T1(:,:)
-
-    allocate(rhoPrimOld(size(rhoPrim, dim=1), size(rhoPrim, dim=2)))
-    allocate(T1(size(rho, dim=1), size(rho, dim=2)))
-    T1(:,:) = 0.0_dp
+    type(linecomm) :: distributor
+    complex(dp), allocatable :: localRhoCol(:)
 
     ! Set to stream explicitely, as it was written as stream from the beginning
-    call openFile(fd, trim(fileName) // '.bin',&
-        & options=TOpenOptions(form='unformatted', access='stream', action='write'), iostat=iErr)
-    if (iErr /= 0) then
-      write(error_string, "(A,A,A)") "Failure to open external restart file ",trim(fileName),&
-          & ".bin"
-      @:RAISE_ERROR(errStatus, -1, error_string)
+    if (env%mpi%tGlobalLead) then
+      call openFile(fd, file=trim(fileName)//'.bin',&
+          & options=TOpenOptions(form='unformatted', access='stream', action='read',&
+          & position="rewind"))
+
+      read(fd%unit) version
+      read(fd%unit) nOrb, nSpin, nAtom, time, deltaT
+      read(fd%unit) coord, veloc
     end if
 
-    read(fd%unit)version
-    if (version /= iDumpFormat) then
-      @:RAISE_ERROR(errStatus, -1, "Unknown TD restart format")
-    end if
-    read(fd%unit) nSparse, nSpin, nAtom, time, deltaT
-    if (nSparse /= size(rhoPrim, dim=1)) then
-      write(error_string, "(A,I0,A,I0)")"Incorrect size of the sparse density matrix, ",nSparse,&
-          & " in tddump file, should be ",size(rhoPrim, dim=1)
-      @:RAISE_ERROR(errStatus, -1, error_string)
-    end if
-    if (nSpin /= size(rhoPrim, dim=2)) then
-      write(error_string, "(A,I1,A,I1)")"Incorrect number of spin channels, ",nSpin,&
-          & " in tddump file, should be ",size(rhoPrim, dim=2)
-      @:RAISE_ERROR(errStatus, -1, error_string)
-    end if
-    if (nAtom /= size(coord, dim=2)) then
-      write(error_string, "(A,I0,A,I0)")"Incorrect number of atoms, ",nAtom,&
-          & " in tddump file, should be ", size(coord, dim=2)
-      @:RAISE_ERROR(errStatus, -1, error_string)
-    end if
-    if (abs(deltaT - dt) > epsilon(0.0_dp)) then
-      write(error_string, "(A,E14.8,A,E14.8)")"Restart file generated for time step",&
-          & deltaT, " instead of current timestep of", dt
-    end if
-    read(fd%unit) rhoPrim, rhoPrimOld, coord, veloc
+    allocate(localRhoCol(nOrb))
 
-    call closeFile(fd)
-
-    if (tRealHS) then
-      do iSpin = 1, size(rhoPrim, dim=2)
-        call  unpackHSRealBlacs(env%blacs, rhoPrim(:,iSpin), iNeighbour,&
-            & nNeighbourSK, iSparseStart, img2CentCell, denseDesc, T1)
-        rho(:,:,iSpin) = cmplx(T1, 0.0_dp, dp)
-        call  unpackHSRealBlacs(env%blacs, rhoPrimOld(:,iSpin), iNeighbour,&
-            & nNeighbourSK, iSparseStart, img2CentCell, denseDesc, T1)
-        rhoOld(:,:,iSpin) = cmplx(T1, 0.0_dp, dp)
+    call distributor%init(env%blacs%orbitalGrid, denseDesc%blacsOrbSqr, "c")
+    do iKS = 1, parallelKS%nLocalKS
+      do icol = 1, nOrb
+        if (env%mpi%tGlobalLead) then
+          read(fd%unit) localRhoCol(:)
+          call distributor%setline_lead(env%blacs%orbitalGrid, icol, localRhoCol(:), rho(:,:,iKS))
+        else
+          call distributor%setline_follow(env%blacs%orbitalGrid, icol, rho(:,:,iKS))
+        end if
       end do
-    else
-        @:RAISE_ERROR(errStatus, -1, "Complex Hamiltonian rt-TDDFTB not implemented with MPI parallelization yet")
+    end do
+
+    do iKS = 1, parallelKS%nLocalKS
+      do icol = 1, nOrb
+        if (env%mpi%tGlobalLead) then
+          read(fd%unit) localRhoCol(:)
+          call distributor%setline_lead(env%blacs%orbitalGrid, icol, localRhoCol(:), rhoOld(:,:,iKS))
+        else
+          call distributor%setline_follow(env%blacs%orbitalGrid, icol, rhoOld(:,:,iKS))
+        end if
+      end do
+    end do
+
+    if (env%mpi%tGlobalLead) then
+      call closeFile(fd)
     end if
 
-    deallocate(rhoPrimOld, T1)
-
-  end subroutine readRestartFileSparse
+  end subroutine readRestartFileBlacs
   #:endif
 
 end module dftbp_timedep_dynamicsrestart

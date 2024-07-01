@@ -82,7 +82,7 @@ module dftbp_timedep_timeprop
   & scalafx_getdescriptor, scalafx_addl2g
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
-  use dftbp_timedep_dynamicsrestart, only : writeRestartFileSparse, readRestartFileSparse
+  use dftbp_timedep_dynamicsrestart, only : writeRestartFileBlacs, readRestartFileBlacs
   use dftbp_math_matrixops, only : adjointLowerTriangle_BLACS
 
   #:endif
@@ -1134,6 +1134,10 @@ contains
 
     tWriteAutotest = this%tWriteAutotest
     this%iCall = 1
+    if (env%mpi%nGroup /= 1) then
+      @:RAISE_ERROR(errStatus, -1, "Real-time dynamics parallelized only using 1 MPI group.")
+    end if
+
     if (allocated(this%polDirs)) then
       if (size(this%polDirs) > 1) then
         this%initCoord = coord
@@ -1358,7 +1362,7 @@ contains
           & this%occ, this%lastBondPopul, taggedWriter)
     end if
 
-  !  call finalizeDynamics(this)
+    call finalizeDynamics(this, env)
 
   end subroutine doDynamics
 
@@ -1744,10 +1748,13 @@ contains
 
 
   !> Creates array for an external TD field
-  subroutine getTDFunction(this, startTime)
+  subroutine getTDFunction(this, env, startTime)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout) :: this
+
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
 
     !> Starting time of the simulation, if relevant
     real(dp), intent(in) :: startTime
@@ -1771,16 +1778,28 @@ contains
       E0 = 0.0_dp !this is to make sure we never sum the current field with that read from file
     end if
 
-    if (this%tEnvFromFile) then
-      call openFile(laserDat, "laser.dat", mode="r")
-    else
-      call openOutputFile(this, laserDat, 'laser.dat')
+#:if WITH_MPI
+    if (env%mpi%tGlobalLead) then
+      if (this%tEnvFromFile) then
+        call openFile(laserDat, "laser.dat", mode="r")
+      else
+        call openOutputFile(this, env, laserDat, 'laser.dat')
+      end if
+      if (.not. this%tEnvFromFile) then
+        write(laserDat%unit, "(A)") "#     time (fs)  |  E_x (eV/ang)  | E_y (eV/ang) | E_z (eV/ang)"
+      end if
     end if
-
+#:else
+      if (this%tEnvFromFile) then
+        call openFile(laserDat, "laser.dat", mode="r")
+      else
+        call openOutputFile(this, env, laserDat, 'laser.dat')
+      end if
     if (.not. this%tEnvFromFile) then
       write(laserDat%unit, "(A)") "#     time (fs)  |  E_x (eV/ang)  | E_y (eV/ang) | E_z (eV/ang)"
     end if
-
+#:endif
+ 
     do iStep = 0,this%nSteps
       time = iStep * this%dt + startTime
 
@@ -1795,13 +1814,26 @@ contains
       end if
 
       if (this%tEnvFromFile) then
+#:if WITH_MPI
+        if (env%mpi%tGlobalLead) then
+          read(laserDat%unit, *)time, tdfun(1), tdfun(2), tdfun(3)
+        end if
+#:else
         read(laserDat%unit, *)time, tdfun(1), tdfun(2), tdfun(3)
+#:endif
         this%tdFunction(:, iStep) = tdfun * (Bohr__AA / Hartree__eV)
       else
         this%tdFunction(:, iStep) = E0 * envelope * aimag(exp(imag*(time*angFreq + this%phase))&
             & * this%fieldDir)
+#:if WITH_MPI
+        if (env%mpi%tGlobalLead) then
+          write(laserDat%unit, "(5F15.8)") time * au__fs,&
+              & this%tdFunction(:, iStep) * (Hartree__eV / Bohr__AA)
+        end if
+#:else
         write(laserDat%unit, "(5F15.8)") time * au__fs,&
             & this%tdFunction(:, iStep) * (Hartree__eV / Bohr__AA)
+#:endif
       end if
 
     end do
@@ -2530,10 +2562,10 @@ contains
       allocate(bondWork(this%nAtom, this%nAtom))
     end if
     if (this%tBondE) then
-      call openOutputFile(this, fdBondEnergy, 'bondenergy.bin', isBinary = .true.)
+      call openOutputFile(this, env, fdBondEnergy, 'bondenergy.bin', isBinary = .true.)
     end if
     if (this%tBondP) then
-      call openOutputFile(this, fdBondPopul, 'bondpop.bin', isBinary = .true.)
+      call openOutputFile(this, env, fdBondPopul, 'bondpop.bin', isBinary = .true.)
     end if
     call getBondPopulAndEnergy(this, bondWork, lastBondPopul, rhoPrim, ham0, ints, iNeighbour,&
         & nNeighbourSK, iSparseStart, img2CentCell, iSquare, fdBondEnergy, fdBondPopul, time)
@@ -2797,11 +2829,14 @@ contains
 
 
   !> Initialize output files
-  subroutine initTDOutput(this, dipoleDat, qDat, energyDat, populDat, forceDat, coorDat,&
+  subroutine initTDOutput(this, env, dipoleDat, qDat, energyDat, populDat, forceDat, coorDat,&
       & atomEnergyDat)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(in) :: this
+
+    !> Environment
+    type(TEnvironment), intent(in) :: env
 
     !> Dipole output file ID
     type(TFileDescr), intent(out) :: dipoleDat
@@ -2829,6 +2864,10 @@ contains
     character(3) :: strK
     integer :: iSpin, iKS, iK, iErr
 
+#:if WITH_MPI
+    if (.not. env%mpi%tGlobalLead) return
+#:endif
+
     if (this%tKick) then
       if (this%currPolDir == 1) then
         dipoleFileName = 'mux.dat'
@@ -2840,7 +2879,7 @@ contains
     else
       dipoleFileName = 'mu.dat'
     end if
-    call openOutputFile(this, dipoleDat, dipoleFileName)
+    call openOutputFile(this, env, dipoleDat, dipoleFileName)
 
     write(dipoleDat%unit, "(A)", advance = "NO")"#           time (fs)    |"
     select case(this%nSpin)
@@ -2859,7 +2898,7 @@ contains
     write(dipoleDat%unit, "(A)")
 
     if (this%tdWriteExtras) then
-      call openOutputFile(this, qDat, 'qsvst.dat')
+      call openOutputFile(this, env, qDat, 'qsvst.dat')
       write(qDat%unit, "(A)", advance = "NO")"#             time (fs)      |"
       write(qDat%unit, "(A)", advance = "NO")"   total net charge (e)  |"
       write(qDat%unit, "(A)", advance = "NO")"   charge (atom_1) (e)   |"
@@ -2868,7 +2907,7 @@ contains
       write(qDat%unit, "(A)", advance = "NO")"   charge (atom_N) (e)   |"
       write(qDat%unit, "(A)")
 
-      call openOutputFile(this, energyDat, 'energyvst.dat')
+      call openOutputFile(this, env, energyDat, 'energyvst.dat')
       write(energyDat%unit, "(A)", advance = "NO")"#                  time (fs)         |"
       write(energyDat%unit, "(A)", advance = "NO")"        E total (H)         |"
       write(energyDat%unit, "(A)", advance = "NO")"        E non-SCC (H)       |"
@@ -2881,7 +2920,7 @@ contains
       write(energyDat%unit, "(A)")
 
       if (this%tForces) then
-        call openOutputFile(this, forceDat, 'forcesvst.dat')
+        call openOutputFile(this, env, forceDat, 'forcesvst.dat')
         write(forceDat%unit, "(A)", advance = "NO")"#           time (fs)       |"
         write(forceDat%unit, "(A)", advance = "NO")&
             & " force (atom_1) (H/b)   |  force (atom_2) (H/b)  |"
@@ -2891,7 +2930,7 @@ contains
       end if
 
       if (this%tIons) then
-        call openOutputFile(this, coorDat, 'tdcoords.xyz')
+        call openOutputFile(this, env, coorDat, 'tdcoords.xyz')
       end if
     end if
 
@@ -2900,13 +2939,13 @@ contains
         iSpin = this%parallelKS%localKS(2, iKS)
         write(strSpin,'(i1)')iSpin
         if (this%tRealHS) then
-          call openOutputFile(this, populDat(iKS), 'molpopul' // trim(strSpin) // '.dat')
+          call openOutputFile(this, env, populDat(iKS), 'molpopul' // trim(strSpin) // '.dat')
           write(populDat(iKS)%unit, "(A,A)")&
               & "#  GS molecular orbital populations, spin channel : ", trim(strSpin)
         else
           iK = this%parallelKS%localKS(1, iKS)
           write(strK,'(i0.3)')iK
-          call openOutputFile(this, populDat(iKS),&
+          call openOutputFile(this, env, populDat(iKS),&
               & 'molpopul' // trim(strSpin) // '-' // trim(strK) // '.dat')
           write(populDat(iKS)%unit, "(A,A,A,A)")&
               & "#  GS molecular orbital populations, spin channel : ", trim(strSpin), ",&
@@ -2930,7 +2969,7 @@ contains
     end if
 
     if (this%tWriteAtomEnergies) then
-      call openOutputFile(this, atomEnergyDat, 'atomenergies.dat')
+      call openOutputFile(this, env, atomEnergyDat, 'atomenergies.dat')
       write(atomEnergyDat%unit, "(A)", advance = "NO")"#             time (fs)      |"
       write(atomEnergyDat%unit, "(A)", advance = "NO")"   E total (H)  |"
       write(atomEnergyDat%unit, "(A)", advance = "NO")"   E (atom_1) (H)   |"
@@ -2944,8 +2983,11 @@ contains
 
 
   !> Close output files
-  subroutine closeTDOutputs(dipoleDat, qDat, energyDat, populDat, forceDat, coorDat,&
+  subroutine closeTDOutputs(env, dipoleDat, qDat, energyDat, populDat, forceDat, coorDat,&
       & fdBondPopul, fdBondEnergy, atomEnergyDat)
+
+    !> Environment
+    type(TEnvironment), intent(in) :: env
 
     !> Dipole output file ID
     type(TFileDescr), intent(inout) :: dipoleDat
@@ -2974,6 +3016,10 @@ contains
     !> Atom-resolved energy output file ID
     type(TFileDescr), intent(inout) :: atomEnergyDat
 
+#:if WITH_MPI
+    if (.not. env%mpi%tGlobalLead) return
+#:endif
+
     call closeFile(dipoleDat)
     call closeFile(qDat)
     call closeFile(energyDat)
@@ -2988,10 +3034,13 @@ contains
 
 
   !> Open files in different ways depending on their previous existence
-  subroutine openOutputFile(this, fileDescr, fileName, isBinary)
+  subroutine openOutputFile(this, env, fileDescr, fileName, isBinary)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(in) :: this
+
+    !> Environment
+    type(TEnvironment), intent(in) :: env
 
     !> File descriptor
     type(TFileDescr), intent(out) :: fileDescr
@@ -3011,6 +3060,10 @@ contains
     integer :: iCount
 
     logical :: isBinary_
+
+#:if WITH_MPI
+    if (.not. env%mpi%tGlobalLead) return
+#:endif
 
     if (present(isBinary)) then
       isBinary_ = isBinary
@@ -3042,12 +3095,15 @@ contains
 
 
   !> Write results to file
-  subroutine writeTDOutputs(this, dipoleDat, qDat, energyDat, forceDat, coorDat, fdBondPopul,&
+  subroutine writeTDOutputs(this, env, dipoleDat, qDat, energyDat, forceDat, coorDat, fdBondPopul,&
       & fdBondEnergy, atomEnergyDat, time, energy, energyKin, dipole, deltaQ, coord, totalForce,&
       & iStep)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(in) :: this
+
+    !> Environment
+    type(TEnvironment), intent(in) :: env
 
     !> Data type for energy components and total
     type(TEnergies), intent(in) :: energy
@@ -3099,6 +3155,10 @@ contains
 
     real(dp) :: auxVeloc(3, this%nAtom)
     integer :: iAtom, iSpin, iDir
+
+#:if WITH_MPI
+    if (.not. env%mpi%tGlobalLead) return
+#:endif
 
     write(dipoleDat%unit, '(7F25.15)') time * au__fs, ((dipole(iDir, iSpin) * Bohr__AA, iDir=1, 3),&
         & iSpin=1, this%nSpin)
@@ -3176,7 +3236,7 @@ contains
 
 
   !> Initialize matrices for populations
-  !! Note, this will need to get generalised for complex eigenvectors
+  !! Note, this will need to get generalised for complex eigenvctors
   subroutine tdPopulInit(this, Eiginv, EiginvAdj,errStatus, eigvecsReal, eigvecsCplx)
 
     !> ElecDynamics instance
@@ -4553,9 +4613,8 @@ write(populDat(iKS)%unit,*)
 
     if (this%tReadRestart) then
 #:if WITH_SCALAPACK
-      call readRestartFileSparse(this%trho, this%trhoOld, this%rhoPrim, coord, velInternal, this%time, this%dt,&
-      & restartFileName, env, this%denseDesc, neighbourList%iNeighbour, nNeighbourSK, iSparseStart,&
-      & img2CentCell, this%tRealHS, errStatus)
+      call readRestartFileBlacs(this%trho, this%trhoOld, coord, velInternal, this%time, this%dt,&
+      & restartFileName, env, this%denseDesc, this%parallelKS,  errStatus)
 #:else
       call readRestartFile(this%trho, this%trhoOld, coord, this%movedVelo, this%startTime, this%dt,&
       & restartFileName, this%tRestartAscii, errStatus)
@@ -4581,7 +4640,7 @@ write(populDat(iKS)%unit,*)
       this%ReadMDVelocities = .true.
     end if
     if (this%tLaser .and. .not. this%tdFieldThroughAPI .and. this%iCall == 1) then
-      call getTDFunction(this, this%startTime)
+      call getTDFunction(this, env, this%startTime)
     end if
 
     call initializeTDVariables(this, this%trho, this%H1, this%Ssqr, this%Sinv, H0, this%ham0, &
@@ -4595,7 +4654,7 @@ write(populDat(iKS)%unit,*)
       call initLatticeVectors(this, boundaryCond)
     end if
 
-    call initTDOutput(this, this%dipoleDat, this%qDat, this%energyDat,&
+    call initTDOutput(this, env, this%dipoleDat, this%qDat, this%energyDat,&
         & this%populDat, this%forceDat, this%coorDat, this%atomEnergyDat)
 
     ! Write density at t=0
@@ -4680,7 +4739,7 @@ write(populDat(iKS)%unit,*)
 
     if (.not. this%tReadRestart .or. this%tProbe) then
       ! output ground state data
-      call writeTDOutputs(this, this%dipoleDat, this%qDat, this%energyDat, &
+      call writeTDOutputs(this, env, this%dipoleDat, this%qDat, this%energyDat, &
           & this%forceDat, this%coorDat, this%fdBondPopul, this%fdBondEnergy, this%atomEnergyDat,&
           & 0.0_dp, this%energy, this%energyKin, this%dipole, this%deltaQ, coord, this%totalForce,&
           & 0)
@@ -4946,7 +5005,7 @@ write(populDat(iKS)%unit,*)
     end if
 
     if (.not. this%tReadRestart .or. (iStep > 0) .or. this%tProbe) then
-      call writeTDOutputs(this, this%dipoleDat, this%qDat, this%energyDat, &
+      call writeTDOutputs(this, env, this%dipoleDat, this%qDat, this%energyDat, &
           & this%forceDat, this%coorDat, this%fdBondPopul, this%fdBondEnergy, this%atomEnergyDat,&
           & this%time, this%energy, this%energyKin, this%dipole, this%deltaQ, coord,&
           & this%totalForce, iStep)
@@ -4960,9 +5019,8 @@ write(populDat(iKS)%unit,*)
         velInternal(:,:) = 0.0_dp
       end if
 #:if WITH_SCALAPACK
-      call writeRestartFileSparse(this%rho, this%rhoOld, this%rhoPrim, coord, velInternal, this%time, this%dt,&
-          & restartFileName, env, this%denseDesc, neighbourList%iNeighbour, nNeighbourSK, orb%mOrb, iSparseStart,&
-          & img2CentCell, this%tRealHS, errStatus)
+      call writeRestartFileBlacs(this%rho, this%rhoOld, coord, velInternal, this%time, this%dt,&
+          & restartFileName, env, this%denseDesc, this%parallelKS, errStatus)
 #:else
       call writeRestartFile(this%rho, this%rhoOld, coord, velInternal, this%time, this%dt, &
           &restartFileName, this%tWriteRestartAscii, errStatus)
@@ -5031,12 +5089,15 @@ write(populDat(iKS)%unit,*)
 
 
   !> Handles deallocation, closing outputs and autotest writing
-  subroutine finalizeDynamics(this)
+  subroutine finalizeDynamics(this, env)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout) :: this
 
-    call closeTDOutputs(this%dipoleDat, this%qDat, this%energyDat, this%populDat,&
+    !> Environment
+    type(TEnvironment), intent(in) :: env
+
+    call closeTDOutputs(env, this%dipoleDat, this%qDat, this%energyDat, this%populDat,&
         & this%forceDat, this%coorDat, this%fdBondPopul, this%fdBondEnergy, this%atomEnergyDat)
 
     deallocate(this%Ssqr)
