@@ -310,16 +310,31 @@ contains
     type(TStatus), intent(out) :: errStatus
 
     type(TFileDescr) :: fd
-    integer :: iErr, nOrb, nSpin, icol, iKS
+    integer :: iErr, nOrb, nSpin, icol, iKS, irow, icoll
     type(linecomm) :: collector
     complex(dp), allocatable :: localRhoCol(:)
+
+
+    print *,'at restart write'
+    print *,'rho'
+    do irow=1,size(rho, dim=1)
+       do icoll=1,size(rho, dim=2)
+          print *, irow, icoll, rho(irow,icoll,1)
+       end do
+    end do
+    print *,'rhoOld'
+    do irow=1,size(rhoOld, dim=1)
+       do icoll=1,size(rhoOld, dim=2)
+          print *, irow, icoll, rhoOld(irow,icoll,1)
+       end do
+    end do
 
     ! Set to stream explicitely, as it was written as stream from the beginning
     nOrb = denseDesc%fullSize
     nSpin = parallelKS%nLocalKS
     if (env%mpi%tGlobalLead) then
       call openFile(fd, trim(fileName) // '.bin',&
-          & options=TOpenOptions(form='unformatted', access='stream', action='write'), iostat=iErr)
+          & options=TOpenOptions(form='unformatted', access='stream', action='write'))
       write(fd%unit) iDumpFormat
       write(fd%unit) nOrb, nSpin, size(coord, dim=2), time, dt
       write(fd%unit) coord, veloc
@@ -334,6 +349,8 @@ contains
         if (env%mpi%tGlobalLead) then
           call collector%getline_lead(env%blacs%orbitalGrid, icol, rho(:,:,iKS), localRhoCol)
           write(fd%unit)localRhoCol(:)
+          print *,'localrhocol, icol', icol
+          print *,localRhoCol(:)
         else
           call collector%getline_follow(env%blacs%orbitalGrid, icol, rho(:,:,iKS))
         end if
@@ -396,7 +413,7 @@ contains
     type(TStatus), intent(out) :: errStatus
 
     type(TFileDescr) :: fd
-    integer :: iErr, version, nOrb, nSpin, nAtom, icol, iKS
+    integer :: iErr, version, nOrb, nSpin, nAtom, icol, iKS, irow, icoll
     character(len=120) :: error_string
     real(dp) :: deltaT
     type(linecomm) :: distributor
@@ -420,6 +437,8 @@ contains
       do icol = 1, nOrb
         if (env%mpi%tGlobalLead) then
           read(fd%unit) localRhoCol(:)
+          print *,'localrhocol, icol', icol
+          print *,localRhoCol(:)
           call distributor%setline_lead(env%blacs%orbitalGrid, icol, localRhoCol(:), rho(:,:,iKS))
         else
           call distributor%setline_follow(env%blacs%orbitalGrid, icol, rho(:,:,iKS))
@@ -436,6 +455,20 @@ contains
           call distributor%setline_follow(env%blacs%orbitalGrid, icol, rhoOld(:,:,iKS))
         end if
       end do
+    end do
+
+    print *,'at restart read'
+    print *,'rho'
+    do irow=1,size(rho, dim=1)
+       do icoll=1,size(rho, dim=2)
+          print *, irow, icoll, rho(irow,icoll,1)
+       end do
+    end do
+    print *,'rhoOld'
+    do irow=1,size(rhoOld, dim=1)
+       do icoll=1,size(rhoOld, dim=2)
+          print *, irow, icoll, rhoOld(irow,icoll,1)
+       end do
     end do
 
     if (env%mpi%tGlobalLead) then

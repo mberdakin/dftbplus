@@ -2405,10 +2405,9 @@ contains
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
 
-          ! Simetrize Sinv with adjointLowerTriangle_BLACS
           nn = this%denseDesc%fullSize
           call scalafx_getdescriptor(env%blacs%orbitalGrid, nn, nn, env%blacs%rowBlockSize,&
-          & env%blacs%columnBlockSize, desc)       
+          & env%blacs%columnBlockSize, desc)
           call adjointLowerTriangle_BLACS(desc, env%blacs%orbitalGrid%myCol, &
           & env%blacs%orbitalGrid%myRow, env%blacs%orbitalGrid%nCol, &
           & env%blacs%orbitalGrid%nRow, Sinv(:,:,iKS))
@@ -3704,6 +3703,9 @@ write(populDat(iKS)%unit,*)
     complex(dp), allocatable :: T4(:,:)
     real(dp) :: coord0Fold(3,this%nAtom)
     integer :: nAllAtom, iSpin, sparseSize, iOrb, iKS, iK, nLocalRows, nLocalCols
+#:if WITH_SCALAPACK
+    integer :: desc(DLEN_)
+#:endif
 
     coord0Fold(:,:) = coord
     call boundaryCond%foldCoordsToCell(coord0Fold, this%latVec)
@@ -3775,12 +3777,18 @@ write(populDat(iKS)%unit,*)
 #:if WITH_SCALAPACK
       if (this%tRealHS) then
         do iKS = 1, this%parallelKS%nLocalKS
+          Sreal = 0.0_dp
           call  unpackHSRealBlacs(env%blacs, ints%overlap, neighbourList%iNeighbour,&
            & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, Sreal)
           Ssqr(:,:,iKS) = cmplx(Sreal, 0, dp)
 
           call psymmatinv(this%denseDesc%blacsOrbSqr, Sreal, errStatus)
           Sinv(:,:,iKS) = cmplx(Sreal, 0, dp)
+
+          call scalafx_getdescriptor(env%blacs%orbitalGrid, this%nOrbs, this%nOrbs, env%blacs%rowBlockSize,&
+              & env%blacs%columnBlockSize, desc)
+          call adjointLowerTriangle_BLACS(desc, env%blacs%orbitalGrid%myCol,  env%blacs%orbitalGrid%myRow,&
+              & env%blacs%orbitalGrid%nCol, env%blacs%orbitalGrid%nRow, Sinv(:,:,iKS))
         end do
         ! TODO: add here complex overlap matrix with blacs
       end if
