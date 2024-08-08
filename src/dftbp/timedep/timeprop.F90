@@ -4621,7 +4621,7 @@ write(populDat(iKS)%unit,*)
 
     if (this%tReadRestart) then
 #:if WITH_SCALAPACK
-      call readRestartFileBlacs(this%trho, this%trhoOld, coord, velInternal, this%time, this%dt,&
+      call readRestartFileBlacs(this%trho, this%trhoOld, coord, this%movedVelo, this%time, this%dt,&
       & restartFileName, env, this%denseDesc, this%parallelKS,  errStatus)
 #:else
       call readRestartFile(this%trho, this%trhoOld, coord, this%movedVelo, this%startTime, this%dt,&
