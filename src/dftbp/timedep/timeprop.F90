@@ -1631,10 +1631,7 @@ contains
     real(dp) :: pkick(this%nSpin)
     integer :: nLocalCols, nLocalRows
     character(1), parameter :: localDir(3) = ['x', 'y', 'z']
-!!!!!!!!!!!
-    integer :: unit_num, i,j
-    character(len=20) :: filename = "Ssqr.txt"
-!!!!!!!!!!!
+
     #:if WITH_SCALAPACK
     nLocalRows = size(rho, dim=1)
     nLocalCols = size(rho, dim=2)
@@ -1647,10 +1644,6 @@ contains
     allocate(T3(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
     allocate(T4(nLocalRows, nLocalCols))
     
-!!!!!!
-    open(newunit=unit_num, file=filename, status='replace')
- 
-!!!!!!
     T1(:,:,:) = cmplx(0,0,dp)
     T2(:,:) = cmplx(0,0,dp)
     T3(:,:,:) = cmplx(0,0,dp)
@@ -1738,11 +1731,6 @@ contains
     #:endif
     write(stdout,"(A)")'Density kicked along ' // localDir(this%currPolDir) //'!'
 
-    do i= 1, nLocalCols
-      do j=1,nLocalRows
-        write(unit_num,*) i,j,Ssqr(i,j,:)
-      enddo
-    enddo
 
   end subroutine kickDM
 
