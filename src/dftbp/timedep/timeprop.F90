@@ -1134,9 +1134,12 @@ contains
 
     tWriteAutotest = this%tWriteAutotest
     this%iCall = 1
+
+    #:if WITH_SCALAPACK
     if (env%mpi%nGroup /= 1) then
       @:RAISE_ERROR(errStatus, -1, "Real-time dynamics parallelized only using 1 MPI group.")
     end if
+    #:endif
 
     if (allocated(this%polDirs)) then
       if (size(this%polDirs) > 1) then
