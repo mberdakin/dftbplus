@@ -82,7 +82,7 @@ option(ENABLE_DYNAMIC_LOADING "Whether the library should be dynamically loadabl
 #
 # Test environment settings
 #
-set(TEST_MPI_PROCS "1" CACHE STRING "Nr. of MPI processes used for testing")
+set(TEST_MPI_PROCS "2" CACHE STRING "Nr. of MPI processes used for testing")
 
 set(TEST_OMP_THREADS "1" CACHE STRING "Nr. of OpenMP-threads used for testing")
 
