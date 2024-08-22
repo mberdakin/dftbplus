@@ -3482,12 +3482,13 @@ endif
 
   ! bring occ and write to file : 
 
+if ( env%mpi%tGlobalLead) then
 write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
 do ii = 1, size(occ)
   write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
 end do
 write(populDat(iKS)%unit,*)
-
+endif
 
 #:else
   call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
