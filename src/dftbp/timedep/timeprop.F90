@@ -78,14 +78,13 @@ module dftbp_timedep_timeprop
   use dftbp_dftb_sparse2dense, only : unpackHSRealBlacs, packRhoRealBlacs
   use dftbp_dftb_populations, only : mulliken
   use dftbp_extlibs_scalapackfx, only : pblasfx_psymm, pblasfx_ptran, pblasfx_pgemm, &
-  & scalafx_pgetri, scalafx_pgetrf, M_, N_, pblasfx_ptranu, DLEN_,&
-  & scalafx_getdescriptor, scalafx_addl2g
+      & scalafx_pgetri, scalafx_pgetrf, M_, N_, pblasfx_ptranu, DLEN_,&
+      & scalafx_getdescriptor, scalafx_addl2g
   use dftbp_extlibs_mpifx, only : MPI_SUM, mpifx_allreduceip
   use dftbp_math_scalafxext, only : psymmatinv, phermatinv
   use dftbp_timedep_dynamicsrestart, only : writeRestartFileBlacs, readRestartFileBlacs
   use dftbp_math_matrixops, only : adjointLowerTriangle_BLACS
-
-  #:endif
+#:endif
 #:if WITH_MBD
   use dftbp_dftb_dispmbd, only : TDispMbd
 #:endif
@@ -1635,13 +1634,13 @@ contains
     integer :: nLocalCols, nLocalRows
     character(1), parameter :: localDir(3) = ['x', 'y', 'z']
 
-    #:if WITH_SCALAPACK
+#:if WITH_SCALAPACK
     nLocalRows = size(rho, dim=1)
     nLocalCols = size(rho, dim=2)
-    #:else
+#:else
     nLocalRows = this%nOrbs
     nLocalCols = this%nOrbs
-    #:endif
+#:endif
     allocate(T1(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
     allocate(T2(nLocalRows, nLocalCols))
     allocate(T3(nLocalRows, nLocalCols, this%parallelKS%nLocalKS))
@@ -1663,7 +1662,7 @@ contains
       end select
     end if
 
-    #:if WITH_SCALAPACK
+#:if WITH_SCALAPACK
     allocate(tmp1(orb%mOrb, orb%mOrb))
     allocate(tmp2(orb%mOrb, orb%mOrb))
 
@@ -1706,11 +1705,10 @@ contains
 
       !call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
       call pblasfx_pgemm(Sinv(:,:,iKS), this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr,&
-      &  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')      
-      
+      &  rho(:,:,iKS), this%denseDesc%blacsOrbSqr, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
     end do
 
-    #:else
+#:else
     do iKS = 1, this%parallelKS%nLocalKS
       iSpin = this%parallelKS%localKS(2, iKS)
       do iAt = 1, this%nAtom
@@ -1731,9 +1729,8 @@ contains
       call gemm(rho(:,:,iKS), Sinv(:,:,iKS), T2, cmplx(0.5, 0, dp), cmplx(1, 0, dp), 'N', 'C')
     end do
 
-    #:endif
+#:endif
     write(stdout,"(A)")'Density kicked along ' // localDir(this%currPolDir) //'!'
-
 
   end subroutine kickDM
 
@@ -2386,16 +2383,15 @@ contains
       Sinv(:,:,:) = 0.0_dp
 
 #:if WITH_SCALAPACK
-
       do iKS = 1, this%parallelKS%nLocalKS
         if (this%tRealHS) then
           call  unpackHSRealBlacs(env%blacs, ints%overlap, iNeighbour,&
            & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T2)
           Ssqr(:,:,iKS) = cmplx(T2, 0, dp)
-
           call psymmatinv(this%denseDesc%blacsOrbSqr, T2, errStatus)
           Sinv(:,:,iKS) = cmplx(T2, 0, dp)
 
+          ! symmetrization needed for calculation of populations
           nn = this%denseDesc%fullSize
           call scalafx_getdescriptor(env%blacs%orbitalGrid, nn, nn, env%blacs%rowBlockSize,&
           & env%blacs%columnBlockSize, desc)
@@ -2403,7 +2399,7 @@ contains
           & env%blacs%orbitalGrid%myRow, env%blacs%orbitalGrid%nCol, &
           & env%blacs%orbitalGrid%nRow, Sinv(:,:,iKS))
 
-        ! TODO: add here complex overlap matrix with blacs
+        ! TODO: add here the complex case
         end if
       end do
 #:else
@@ -2433,8 +2429,6 @@ contains
             Sinv(iOrb, iOrb, iKS) = 1.0_dp
           end do
           call gesv(T4, Sinv(:,:,iKS))
-
- 
         end if
       end do
 #:endif
@@ -2450,7 +2444,7 @@ contains
           call  unpackHSRealBlacs(env%blacs, ints%hamiltonian(:,iSpin), iNeighbour,&
                & nNeighbourSK, iSparseStart, img2CentCell, this%denseDesc, T3)
           H1(:,:,iKS) = cmplx(T3, 0, dp)
-        ! TODO: add here complex Hamiltomian matrix with blacs
+        ! TODO: add here the complex case
         end if
       end do
 #:else
@@ -2509,7 +2503,7 @@ contains
           call makeDensityMtxRealBlacs(env%blacs%orbitalGrid, this%denseDesc%blacsOrbSqr, filling(:,1,iSpin),&
           & eigvecsReal(:,:,iKS), T2)
           rho(:,:,iKS) = cmplx(T2, 0, dp)
-        ! TODO: add here density matrix for complex HS with MPI
+        ! TODO: add here the complex case
         end if
       end do
 #:else
@@ -2746,12 +2740,11 @@ contains
        & T4R, this%denseDesc%blacsOrbSqr, side="R")
     ! T4R= Im[Rho]*Im[H]*Im[Sinv]
 
+    ! T1R = transpose(T3R), T4R = transpose(T2R)
     call pblasfx_ptran(T3R, this%denseDesc%blacsOrbSqr, T1R, this%denseDesc%blacsOrbSqr)
     call pblasfx_ptran(T4R, this%denseDesc%blacsOrbSqr, T2R, this%denseDesc%blacsOrbSqr)
-    ! T1R = Transpose(T3R)
-    ! T4R = Transpose(T2R)
-    ! build the commutator combining the real and imaginary parts of the previous result
 
+    ! build the commutator combining the real and imaginary parts of the previous result
     !$OMP WORKSHARE
     rhoOld(:,:) = rhoOld + cmplx(0, step, dp) * (T3R + imag * T4R)&
         & + cmplx(0, -step, dp) * (T1R - imag * T2R)
@@ -3247,7 +3240,7 @@ contains
     !> Error status
     type(TStatus), intent(out) :: errStatus
 
-    complex(dp), allocatable :: T1(:,:), T2(:,:), T2_C(:,:), T3(:,:)
+    complex(dp), allocatable :: T1(:,:), T2(:,:), T3(:,:)
 
     integer, allocatable  :: ipiv(:)
     integer :: mm, nn
@@ -3264,40 +3257,33 @@ contains
 
     allocate(T1(nLocalRows,nLocalCols))
     allocate(T2(nLocalRows,nLocalCols))
-    allocate(T2_C(nLocalRows,nLocalCols))
     allocate(T3(nLocalRows,nLocalCols))
 
 #: if WITH_SCALAPACK
     if (this%tRealHS) then      
       T2 = cmplx(eigvecsReal, 0, dp)
-      
     end if
 
-    !!!!!! Ivert eigvecsReal with pgetrf and pgetri
-      mm = this%denseDesc%blacsOrbSqr(M_)
-      nn = this%denseDesc%blacsOrbSqr(N_)
-      allocate(ipiv(min(mm,nn)))
-      ipiv = 0
-      call scalafx_pgetrf(T2, this%denseDesc%blacsOrbSqr, ipiv)
-      call scalafx_pgetri(T2, this%denseDesc%blacsOrbSqr, ipiv)
-      Eiginv(:,:) = T2 
-
-    
-    if (this%tRealHS) then  
-      T1 = cmplx(eigvecsReal, 0, dp)
-
-      call pblasfx_ptranu(T1, this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr)
-    end if
-
-    !!!!!! Ivert eigvecsReal^{dagger} with pgetrf and pgetri
+    ! invert eigvecsReal with pgetrf and pgetri
+    mm = this%denseDesc%blacsOrbSqr(M_)
+    nn = this%denseDesc%blacsOrbSqr(N_)
+    allocate(ipiv(min(mm,nn)))
     ipiv = 0
     call scalafx_pgetrf(T2, this%denseDesc%blacsOrbSqr, ipiv)
     call scalafx_pgetri(T2, this%denseDesc%blacsOrbSqr, ipiv)
-
-    EiginvAdj(:,:) = T2
+    Eiginv(:,:) = T2
     
+    if (this%tRealHS) then  
+      T1 = cmplx(eigvecsReal, 0, dp)
+      call pblasfx_ptranu(T1, this%denseDesc%blacsOrbSqr, T2, this%denseDesc%blacsOrbSqr)
+    end if
 
-#:else 
+    ! invert adjoint(eigvecsReal) with pgetrf and pgetri
+    ipiv = 0
+    call scalafx_pgetrf(T2, this%denseDesc%blacsOrbSqr, ipiv)
+    call scalafx_pgetri(T2, this%denseDesc%blacsOrbSqr, ipiv)
+    EiginvAdj(:,:) = T2
+#:else
     if (this%tRealHS) then
       T2 = cmplx(eigvecsReal, 0, dp)
     else
@@ -3325,8 +3311,7 @@ contains
     EiginvAdj(:,:) = T3
 #:endif
 
-    deallocate(T1, T2, T2_C, T3)
-
+    deallocate(T1, T2, T3)
 
   end subroutine tdPopulInit
 
@@ -3443,10 +3428,8 @@ contains
     !> Sparse density matrix
     real(dp), allocatable, intent(inout) :: rhoPrim(:,:)
 
-!    complex(dp) :: T1(this%nOrbs,this%nOrbs)
     integer :: nLocalCols, nLocalRows, ii, i
-    real(dp), allocatable :: T1_R(:,:), T2_R(:,:), T3_R(:,:)
-    complex(dp), allocatable :: T1_C(:,:), T3_C(:,:)
+    complex(dp), allocatable :: T1(:,:), T3(:,:)
 
 #:if WITH_SCALAPACK
     nLocalRows = size(Eiginv, dim=1)
@@ -3456,40 +3439,30 @@ contains
     nLocalCols = this%denseDesc%fullSize
 #:endif
     allocate(T1(nLocalRows,nLocalCols))
-    allocate(T1_C(nLocalRows,nLocalCols))
-    allocate(T3_C(nLocalRows,nLocalCols))
+    allocate(T3(nLocalRows,nLocalCols))
 
 
 #:if WITH_SCALAPACK
+    if (this%tRealHS) then
+      ! T3 = rho*EiginvAdj
+       call pblasfx_pgemm(rho(:,:,iKS), this%denseDesc%blacsOrbSqr, EiginvAdj(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+           & T3, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
+      ! T1 = Trans(Eiginv)*rho*EiginvAdj
+      call pblasfx_pgemm(Eiginv(:,:,iKS), this%denseDesc%blacsOrbSqr, T3, this%denseDesc%blacsOrbSqr,&
+          & T1, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
+    endif
 
+    ! get occupations from distributed matrix
+    call unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
+        & img2CentCell, real(T1, dp), rhoPrim, env, occ, this, iKS, this%denseDesc)
 
-if (this%tRealHS) then
-
-!!! Matrix mult with pgemm !!! 
-  ! T3_C = rho*EiginvAdj
-    call pblasfx_pgemm(rho(:,:,iKS), this%denseDesc%blacsOrbSqr, EiginvAdj(:,:,iKS), this%denseDesc%blacsOrbSqr,&
-    & T3_C, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
-  ! T1_C = Trans(Eiginv)*rho*EiginvAdj
-    call pblasfx_pgemm(Eiginv(:,:,iKS), this%denseDesc%blacsOrbSqr, T3_C, this%denseDesc%blacsOrbSqr,&
-    & T1_C, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
-
-endif
-
-  ! Call unpack and reduce distributed populations 
-
-  call unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
-  & img2CentCell, real(T1_C), rhoPrim, env, occ, this, iKS, this%denseDesc)
-
-  ! bring occ and write to file : 
-
-if ( env%mpi%tGlobalLead) then
-write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
-do ii = 1, size(occ)
-  write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
-end do
-write(populDat(iKS)%unit,*)
-endif
-
+    if (env%mpi%tGlobalLead) then
+      write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no') time * au__fs
+      do ii = 1, size(occ)
+        write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
+      end do
+      write(populDat(iKS)%unit,*)
+    endif
 #:else
   call gemm(T1, rho(:,:,iKS), EiginvAdj(:,:,iKS))
     T1 = transpose(Eiginv(:,:,iKS)) * T1
@@ -3500,8 +3473,9 @@ endif
       write(populDat(iKS)%unit,'(*(2x,F25.15))', advance='no')occ(ii)
     end do
     write(populDat(iKS)%unit,*)
-
 #:endif
+
+    deallocate(T1, T3)
 
   end subroutine getTDPopulations
 
@@ -4079,15 +4053,15 @@ endif
     end if
 
     if (this%isHybridXc) then
-    #:if WITH_SCALAPACK
+#:if WITH_SCALAPACK
       @:RAISE_ERROR(errStatus, -1, "MPI-parallel hybrid-DFTB matrix-based force evaluation not&
           & implemented for rTD-DFTB.")
-    #:else
+#:else
       call hybridXc%addCamGradients_real(real(deltaRho), real(sSqr(:,:,1)), skOverCont, orb,&
           & iSquare, neighbourList%iNeighbour, nNeighbourSK, this%derivator, img2CentCell,&
           & this%speciesAll, coordAll, .false., derivs, errStatus)
       @:PROPAGATE_ERROR(errStatus)
-    #:endif
+#:endif
     end if
 
     if (this%tLaser) then
@@ -5151,8 +5125,12 @@ endif
 
   end subroutine finalizeDynamics
 
+
 #:if WITH_SCALAPACK
-subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
+  !> gets diagonal elements of the distributed density matrix (occupations)
+  !> TODO: there is a more direct and faster way of getting these elements,
+  !> this can be improved in the future if it is a bottleneck.
+  subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
      & img2CentCell, T1_R, rhoPrim, env, occ, this, iKS, desc)
 
     !> Environment settings
@@ -5198,28 +5176,24 @@ subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
     dim = size(rhoPrim, dim=1)
     allocate(popSparse(dim))
     allocate(array_MO(mOrb,mOrb))
-
     
     popSparse = 0.0_dp
-    !1. densa to sparese sparse 
+    !1. dense to sparse
     call packRhoRealBlacs(env%blacs, this%denseDesc, T1_R, iNeighbour, nNeighbourSK,&
       & mOrb, iSparseStart, img2CentCell, popSparse)
 
-    !2. distributed sparese to no distributed sparese 
+    !2. collect all the elements of the sparse DM
     call mpifx_allreduceip(env%mpi%globalComm, popSparse, MPI_SUM)
 
-!Aquí popSparse ya debería ser la matriz "completa" si es así, podemos escribir:
-
+    !3. get the diagonal blocks and then the diagonal elements
     do iAtom1 = 1, this%nAtom
       array_MO = 0.0_dp
       ii = desc%iAtomStart(iAtom1)
       nOrb1 = desc%iAtomStart(iAtom1+1) - ii 
       iNeigh = 0
       iOrig = iSparseStart(iNeigh, iAtom1) + 1
-
       array_MO(1:nOrb1, 1:nOrb1) = &
         & reshape(popSparse(iOrig:iOrig+nOrb1*nOrb1-1), [nOrb1, nOrb1])
-
       do jj = 1, nOrb1
         occ(ii+jj-1) =  array_MO(jj,jj)
       end do
@@ -5227,7 +5201,7 @@ subroutine unpackTDpopulBlacs(iNeighbour, nNeighbourSK, mOrb, iSparseStart,&
 
     deallocate(popSparse, array_MO)
 
-end subroutine unpackTDpopulBlacs
+  end subroutine unpackTDpopulBlacs
 #:endif
 
 end module dftbp_timedep_timeprop

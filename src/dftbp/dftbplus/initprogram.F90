@@ -3862,8 +3862,16 @@ contains
         call error("Electron dynamics of periodic systems does not work with MPI yet")
       end if
 
-      if (this%tFixEf) then
-        call error("Electron dynamics does not work with fixed Fermi levels yet")
+      if (.not. this%tRealHS .and. withMpi) then
+        call error("Electron dynamics of periodic systems does not work with MPI yet")
+      end if
+
+      if (this%isHybridXc .and. withMpi) then
+        call error("Electron dynamics with range-separated functionals not implemented with MPI yet")
+      end if
+
+      if (allocated(this%dftbU) .or. allocated(onSiteElements) .and. withMpi) then
+        call error("Electron dynamics with DFTB+U or onsite corrections not implemented with MPI yet")
       end if
 
       if (this%tSpinSharedEf) then
