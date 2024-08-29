@@ -2,14 +2,14 @@
 # Global architecture independent build settings
 #
 
-set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (Release|RelWithDebInfo|Debug|MinSizeRel)")
+#set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (Release|RelWithDebInfo|Debug|MinSizeRel)")
 # CMAKE_BUILD_TYPE is commented out in order to allow for multi-configuration builds. It will
 # automatically default to RelWithDebInfo if used in a single configuration build. Uncomment or
 # override it only if you want a non-default single configuration build.
 
 option(WITH_OMP "Whether OpenMP thread parallisation should be enabled" TRUE)
 
-option(WITH_MPI "Whether DFTB+ should support MPI-parallelism" TRUE)
+option(WITH_MPI "Whether DFTB+ should support MPI-parallelism" FALSE)
 # If you build an MPI-parallised binary, consider to set WITH_OMP (OpenMP thread parallelisaton) to
 # FALSE unless you want hybrid parallelisation (for experts only).
 
@@ -34,7 +34,8 @@ option(WITH_TBLITE "Whether xTB support should be included via tblite." FALSE)
 option(WITH_SOCKETS "Whether socket communication should be allowed for" FALSE)
 
 option(WITH_ARPACK "Whether the ARPACK library should be included (needed for TD-DFTB)" FALSE)
-# Works only with non-MPI (serial) build, needed for Casida linear response
+# For MPI-parallel builds, the MPI-parallel version of ARPACK (PARPACK) must also be present if
+# this options is turned on.
 
 option(WITH_SDFTD3 "Whether the s-dftd3 library should be included" FALSE)
 
@@ -82,7 +83,7 @@ option(ENABLE_DYNAMIC_LOADING "Whether the library should be dynamically loadabl
 #
 # Test environment settings
 #
-set(TEST_MPI_PROCS "2" CACHE STRING "Nr. of MPI processes used for testing")
+set(TEST_MPI_PROCS "1" CACHE STRING "Nr. of MPI processes used for testing")
 
 set(TEST_OMP_THREADS "1" CACHE STRING "Nr. of OpenMP-threads used for testing")
 
@@ -94,12 +95,8 @@ option(TEST_WITH_VALGRIND "Whether valgrind should be invoked when testing binar
 # Command line used to launch the test code.
 # The escaped variables (\${VARIABLE}) will be substituted by the corresponding CMake variables.
 if(WITH_MPI)
-  if(WITH_OMP)
-    set(TEST_RUNNER_TEMPLATE "env OMP_NUM_THREADS=\${TEST_OMP_THREADS} mpiexec -n \${TEST_MPI_PROCS}"
-      CACHE STRING "How to run the tests")
-  else()
-    set(TEST_RUNNER_TEMPLATE "mpiexec -n \${TEST_MPI_PROCS}" CACHE STRING "How to run the tests")
-  endif()
+  set(TEST_RUNNER_TEMPLATE "env OMP_NUM_THREADS=\${TEST_OMP_THREADS} mpiexec -n \${TEST_MPI_PROCS}"
+    CACHE STRING "How to run the tests")
 elseif(TEST_WITH_VALGRIND)
   set(VALGRIND_OPTIONS
     "--exit-on-first-error=yes --error-exitcode=1 --leak-check=full --show-leak-kinds=definite,possible --errors-for-leak-kinds=definite,possible"
