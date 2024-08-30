@@ -3870,7 +3870,7 @@ contains
         call error("Electron dynamics with range-separated functionals not implemented with MPI yet")
       end if
 
-      if (allocated(this%dftbU) .or. allocated(onSiteElements) .and. withMpi) then
+      if ((allocated(this%dftbU) .or. allocated(this%onSiteElements)) .and. withMpi) then
         call error("Electron dynamics with DFTB+U or onsite corrections not implemented with MPI yet")
       end if
 

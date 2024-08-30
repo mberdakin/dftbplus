@@ -2552,7 +2552,7 @@ contains
       call openOutputFile(this, env, fdBondPopul, 'bondpop.bin', isBinary = .true.)
     end if
     call getBondPopulAndEnergy(this, bondWork, lastBondPopul, rhoPrim, ham0, ints, iNeighbour,&
-        & nNeighbourSK, iSparseStart, img2CentCell, iSquare, fdBondEnergy, fdBondPopul, time)
+        & nNeighbourSK, iSparseStart, img2CentCell, iSquare, fdBondEnergy, fdBondPopul, time, env)
 
     if (this%tRealHS) then
       deallocate(T2)
@@ -3405,7 +3405,7 @@ contains
     real(dp), intent(inout) :: occ(:)
 
     !> Auxiliary matrix
-    complex(dp), allocatable :: T1(:,:), T11(:,:), T2(:,:)
+    complex(dp), allocatable :: T1(:,:), T11(:,:), T2(:,:), T3(:,:)
 
     !> Environment settings
     type(TEnvironment), intent(in) :: env
@@ -3429,7 +3429,6 @@ contains
     real(dp), allocatable, intent(inout) :: rhoPrim(:,:)
 
     integer :: nLocalCols, nLocalRows, ii, i
-    complex(dp), allocatable :: T1(:,:), T3(:,:)
 
 #:if WITH_SCALAPACK
     nLocalRows = size(Eiginv, dim=1)
@@ -4294,7 +4293,7 @@ contains
 
   !> Calculates bond populations and bond energies if requested
   subroutine getBondPopulAndEnergy(this, bondWork, lastBondPopul, rhoPrim, ham0, ints, iNeighbour,&
-      & nNeighbourSK, iSparseStart, img2CentCell, iSquare,  fdBondEnergy, fdBondPopul, time)
+      & nNeighbourSK, iSparseStart, img2CentCell, iSquare,  fdBondEnergy, fdBondPopul, time, env)
 
     !> ElecDynamics instance
     type(TElecDynamics), intent(inout) :: this
@@ -4337,6 +4336,9 @@ contains
 
     !> Elapsed simulation time
     real(dp), intent(in) :: time
+    
+    !> Environment settings
+    type(TEnvironment), intent(in) :: env
 
     integer :: iSpin
 
@@ -4354,7 +4356,9 @@ contains
         call addPairWiseBondInfo(bondWork, rhoPrim(:,1), ints%overlap, iSquare,&
             & iNeighbour, nNeighbourSK, img2CentCell, iSparseStart)
       end do
+      if (env%mpi%tGlobalLead) then
       write(fdBondPopul%unit) time * au__fs, sum(bondWork), bondWork
+      end if 
       if (this%tWriteAutotest) then
         lastBondPopul = sum(bondWork)
       end if
@@ -4931,7 +4935,7 @@ contains
     if ((mod(iStep, this%writeFreq) == 0)) then
       call getBondPopulAndEnergy(this, this%bondWork, this%lastBondPopul, this%rhoPrim, this%ham0,&
           & ints, neighbourList%iNeighbour, nNeighbourSK, iSparseStart, img2CentCell, iSquare,&
-          & this%fdBondEnergy, this%fdBondPopul, this%time)
+          & this%fdBondEnergy, this%fdBondPopul, this%time, env)
     end if
 
     do iKS = 1, this%parallelKS%nLocalKS
