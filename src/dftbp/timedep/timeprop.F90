@@ -4356,9 +4356,13 @@ contains
         call addPairWiseBondInfo(bondWork, rhoPrim(:,1), ints%overlap, iSquare,&
             & iNeighbour, nNeighbourSK, img2CentCell, iSparseStart)
       end do
+      #:if WITH_SCALAPACK
       if (env%mpi%tGlobalLead) then
       write(fdBondPopul%unit) time * au__fs, sum(bondWork), bondWork
       end if 
+      #:else
+      write(fdBondPopul%unit) time * au__fs, sum(bondWork), bondWork
+      #:endif
       if (this%tWriteAutotest) then
         lastBondPopul = sum(bondWork)
       end if
