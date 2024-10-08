@@ -2636,7 +2636,10 @@ contains
         ! The following line is commented to make the fast propagate work since it needs a real H
         !H1(:,:,iKS) = imag * H1(:,:,iKS)
 #:if WITH_SCALAPACK
-        call propagateRhoRealHBlacs(this, rhoNew(:,:,iKS), rho(:,:,iKS), H1(:,:,iKS), Sinv(:,:,iKS), &
+        !call propagateRhoRealHBlacs(this, rhoNew(:,:,iKS), rho(:,:,iKS), H1(:,:,iKS), Sinv(:,:,iKS), &
+        !    & step)
+        this%H1(:,:,iKS) = imag * this%H1(:,:,iKS)
+        call propagateRhoBlacs(this, rhoNew(:,:,iKS), rho(:,:,iKS), H1(:,:,iKS), Sinv(:,:,iKS), &
             & step)
 #:else
         call propagateRhoRealH(this, rhoNew(:,:,iKS), rho(:,:,iKS), H1(:,:,iKS), Sinv(:,:,iKS),&
@@ -2753,6 +2756,55 @@ contains
     deallocate(T1R, T2R, T3R, T4R)
 
   end subroutine propagateRhoRealHBlacs
+
+
+  !> Propagate rho, notice that H = iH (coefficients are real)
+  subroutine propagateRhoBlacs(this, rhoOld, rho, H1, Sinv, step)
+
+    !> ElecDynamics instance
+    type(TElecDynamics), intent(inout) :: this
+
+    !> Density matrix at previous step
+    complex(dp), intent(inout) :: rhoOld(:,:)
+
+    !> Density matrix
+    complex(dp), intent(in) :: rho(:,:)
+
+    !> Square imaginary hamiltonian plus non-adiabatic contribution
+    complex(dp), intent(in) :: H1(:,:)
+
+    !> Square overlap inverse
+    complex(dp), intent(in) :: Sinv(:,:)
+
+    !> Time step in atomic units
+    real(dp), intent(in) :: step
+
+    complex(dp), allocatable :: T1(:,:)
+
+    integer :: nLocalCols, nLocalRows, i, j
+
+    nLocalRows = size(rho, dim=1)
+    nLocalCols = size(rho, dim=2)
+    allocate(T1(nLocalRows,nLocalCols))
+
+    T1(:,:) = 0.0_dp
+    !call gemm(T1, Sinv, H1)
+    call pblasfx_pgemm(Sinv,this%denseDesc%blacsOrbSqr, H1, this%denseDesc%blacsOrbSqr,&
+    & T1, this%denseDesc%blacsOrbSqr)
+
+    !call gemm(rhoOld, T1, rho, cmplx(-step, 0, dp), cmplx(1, 0, dp))
+    call pblasfx_pgemm(T1,this%denseDesc%blacsOrbSqr, rho, this%denseDesc%blacsOrbSqr,&
+    & rhoOld, this%denseDesc%blacsOrbSqr, alpha=cmplx(-step, 0, dp), beta=cmplx(1, 0, dp))
+
+    !call gemm(rhoOld, rho, T1, cmplx(-step, 0, dp), cmplx(1, 0, dp), 'N', 'C')
+    call pblasfx_pgemm(rho,this%denseDesc%blacsOrbSqr, T1, this%denseDesc%blacsOrbSqr,&
+    & rhoOld, this%denseDesc%blacsOrbSqr, alpha=cmplx(-step, 0, dp), beta=cmplx(1, 0, dp),&
+    & transa='N', transb='C')
+
+!all pblasfx_pgemm(rho(:,:,iKS), this%denseDesc%blacsOrbSqr, EiginvAdj(:,:,iKS), this%denseDesc%blacsOrbSqr,&
+    !& T3, this%denseDesc%blacsOrbSqr, transa="N", transb="N")
+  end subroutine propagateRhoBlacs
+  
 #:endif
 
   !> Propagate rho for real Hamiltonian (used for frozen nuclei dynamics and gamma point periodic)
@@ -4956,8 +5008,12 @@ contains
         end if
       else
 #:if WITH_SCALAPACK
-        call propagateRhoRealHBlacs(this, this%rhoOld(:,:,iKS), this%rho(:,:,iKS),&
-      & this%H1(:,:,iKS), this%Sinv(:,:,iKS), 2.0_dp * this%dt)
+     !   call propagateRhoRealHBlacs(this, this%rhoOld(:,:,iKS), this%rho(:,:,iKS),&
+     ! & this%H1(:,:,iKS), this%Sinv(:,:,iKS), 2.0_dp * this%dt)
+      this%H1(:,:,iKS) = imag * this%H1(:,:,iKS)
+
+        call propagateRhoBlacs(this, this%rhoOld(:,:,iKS), this%rho(:,:,iKS),&
+        this%H1(:,:,iKS), this%Sinv(:,:,iKS), 2.0_dp * this%dt)
 #:else
         call propagateRhoRealH(this, this%rhoOld(:,:,iKS), this%rho(:,:,iKS),&
             & this%H1(:,:,iKS), this%Sinv(:,:,iKS), 2.0_dp * this%dt)
